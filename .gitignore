@@ -1,0 +1,6 @@
+venv
+**/__pycache__/
+.idea
+
+scripts/check_generation.py
+SynthSR/check_generation.py

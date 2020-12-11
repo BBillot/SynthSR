@@ -167,7 +167,7 @@ def label_map_random_flipping(labels, label_list, n_neutral_labels, aff, n_dims=
     """
 
     # boolean tensor to decide whether to flip
-    rand_flip = KL.Lambda(lambda x: K.greater(tf.random.uniform((1, 1), 0, 1), 0))([])
+    rand_flip = KL.Lambda(lambda x: K.greater(tf.random.uniform((1, 1), 0, 1), 0.5))([])
 
     # swap right and left labels if we later right-left flip the image
     if flip_rl_only:

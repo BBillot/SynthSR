@@ -18,8 +18,10 @@ n_examples = 3  # number of generated examples
 result_dir = '../../data/generated_images/4-synthesis_synthetic'  # folder where they will be saved
 
 # general parameters
-channels = 2  # we will generate 2 channels: the input channel, and the regression target
-output_channel = 1  # index corresponding to the regression target (here the input channel has an index 0).
+# we will generate 2 channels: the input channel (LR T2 scans), and the regression target (HR T1 scans).
+# Because we synthesise more than 1 channel, input_channels is now a list.
+input_channels = [True, False]
+output_channel = 1  # index corresponding to the regression target.
 target_res = None  # produce data at the resolution of the label maps
 output_shape = 128  # randomly crop to 128^3
 
@@ -30,7 +32,7 @@ generation_classes = '../../data/labels_classes_priors/generation_classes.npy'
 
 # Hyperparameters governing the GMM priors for both for the input channel and the regression target.
 # This is done by concatenating the hyperparameters of each channels. The order of the hyperparameter must follow the
-# index indicated by output_channel (i.e. input channel has index 0 and output_channel has index 1).
+# index indicated by input_channels and output_channel (i.e. input channel has index 0 and output_channel has index 1).
 prior_means_t2 = np.load('../../data/labels_classes_priors/prior_means_t2.npy')
 prior_means_t1_hr = np.load('../../data/labels_classes_priors/prior_means_t1_hr.npy')
 prior_means = np.concatenate([prior_means_t2, prior_means_t1_hr], axis=0)
@@ -41,7 +43,7 @@ prior_stds = np.concatenate([prior_stds_t2, prior_stds_t1_hr], axis=0)
 
 # augmentation parameters
 flipping = True  # enable right/left flipping
-scaling_bounds = 0.7  # the scaling coefficients will be sampled from U(1-scaling_bounds; 1+scaling_bounds)
+scaling_bounds = 0.1  # the scaling coefficients will be sampled from U(1-scaling_bounds; 1+scaling_bounds)
 rotation_bounds = 8  # the rotation angles will be sampled from U(-rotation_bounds; rotation_bounds)
 shearing_bounds = 0.01  # the shearing coefficients will be sampled from U(-shearing_bounds; shearing_bounds)
 translation_bounds = False  # no translation is performed, as this is already modelled by the random cropping
@@ -49,8 +51,8 @@ nonlin_std = 2.  # this controls the maximum elastic deformation (higher = more 
 bias_field_std = 0.2  # his controls the maximum bias field corruption (higher = more bias)
 
 # blurring/downsampling parameters
-# We specify here the slice spacing/thickness that we want the input channel to mimic (we do not provide entries for
-# regression target as it will not be downsampled).
+# We specify here the slice spacing/thickness that we want the input channel to mimic. Importantly, we do not provide
+# entries for channels that will not be used as input (as they won't be blurred/downsampled to LR).
 data_res = np.array([1., 4.5, 1.])  # slice spacing
 thickness = np.array([1., 3., 1.])  # slice thickness
 downsample = True  # downsample to simulated LR
@@ -63,7 +65,7 @@ build_reliability_maps = True  # add reliability map to input channels
 brain_generator = BrainGenerator(labels_dir=labels_folder,
                                  images_dir=images_folder,
                                  generation_labels=generation_labels,
-                                 n_channels=channels,
+                                 input_channels=input_channels,
                                  output_channel=output_channel,
                                  target_res=target_res,
                                  output_shape=output_shape,

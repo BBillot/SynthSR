@@ -19,8 +19,8 @@ n_examples = 3  # number of generated examples
 result_dir = '../../data/generated_images/3-synthesis_real'  # folder where they will be saved
 
 # general parameters
-channels = 1  # we only generate synthetic 1 channel (T2 scans).
-output_channel = None  # the regression targets are not synthetic, but real
+input_channels = True  # we only generate synthetic 1 channel and use it as input for the downstream network.
+output_channel = None  # no synthetic channel is used as output, as we use real scans as regression targets
 target_res = None  # produce data at the resolution of the label maps
 output_shape = 128  # in this example we randomly crop the generated pairs to a shape of 128^3
 
@@ -37,7 +37,7 @@ prior_stds = '../../data/labels_classes_priors/prior_stds_t2.npy'
 # We we introduce some parameters concerning the spatial deformation. They enable to set the range of the uniform
 # distribution from which the corresponding parameters are selected
 flipping = True  # enable right/left flipping
-scaling_bounds = 0.7  # the scaling coefficients will be sampled from U(1-scaling_bounds; 1+scaling_bounds)
+scaling_bounds = 0.1  # the scaling coefficients will be sampled from U(1-scaling_bounds; 1+scaling_bounds)
 rotation_bounds = 8  # the rotation angles will be sampled from U(-rotation_bounds; rotation_bounds)
 shearing_bounds = 0.01  # the shearing coefficients will be sampled from U(-shearing_bounds; shearing_bounds)
 translation_bounds = False  # no translation is performed, as this is already modelled by the random cropping
@@ -57,7 +57,7 @@ build_reliability_maps = True  # add reliability map to input channels
 brain_generator = BrainGenerator(labels_dir=labels_folder,
                                  images_dir=images_folder,
                                  generation_labels=generation_labels,
-                                 n_channels=channels,
+                                 input_channels=input_channels,
                                  output_channel=output_channel,
                                  target_res=target_res,
                                  output_shape=output_shape,

@@ -10,16 +10,16 @@ parser.add_argument("labels_dir", type=str)
 parser.add_argument("model_dir", type=str)
 parser.add_argument("prior_means", type=str)
 parser.add_argument("prior_stds", type=str)
+parser.add_argument("path_generation_labels", type=str)
 
 # ---------------------------------------------- Generation parameters ----------------------------------------------
 # training inputs parameters
 parser.add_argument("--images", type=str, dest="images_dir", default=None)
-parser.add_argument("--generation_labels", type=str, dest="path_generation_labels", default=None)
 parser.add_argument("--generation_classes", type=str, dest="path_generation_classes", default=None)
 
 # output-related parameters
 parser.add_argument("--batchsize", type=int, dest="batchsize", default=1)
-parser.add_argument("--channels", type=int, dest="n_channels", default=1)
+parser.add_argument("--input_channels", type=str, dest="input_channels", default=True)
 parser.add_argument("--output_channel", type=int, dest="output_channel", default=None)
 parser.add_argument("--target_res", type=float, dest="target_res", default=None)
 parser.add_argument("--output_shape", type=int, dest="output_shape", default=None)

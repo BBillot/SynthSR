@@ -17,12 +17,12 @@ def training(labels_dir,
              model_dir,
              prior_means,
              prior_stds,
+             path_generation_labels,
              images_dir=None,
-             path_generation_labels=None,
              path_generation_classes=None,
              batchsize=1,
-             n_channels=1,
-             output_channel=None,
+             input_channels=True,
+             output_channel=0,
              target_res=None,
              output_shape=None,
              flipping=True,
@@ -68,18 +68,21 @@ def training(labels_dir,
 
     #---------------------------------------------- Generation parameters ----------------------------------------------
     # label maps parameters
-    :param path_generation_labels: (optional) list of all possible label values in the input label maps.
-    Default is None, where the label values are directly gotten from the provided label maps.
-    If not None, must be the path to a 1d numpy array, which should be organised as follows: background label first,
-    then non-sided labels (e.g. CSF, brainstem, etc.), then all the structures of the same hemisphere (can be left or
-    right), and finally all the corresponding contralateral structures (in the same order).
+    :param path_generation_labels: list of all possible label values in the input label maps.
+    Must be the path to a 1d numpy array, which should be organised as follows: background label first, then non-sided
+    labels (e.g. CSF, brainstem, etc.), then all the structures of the same hemisphere (can be left or right), and
+    finally all the corresponding contralateral structures (in the same order).
+    Example: [background_label, non-sided_1, ..., non-sided_n, left_1, ..., left_m, right_1, ..., right_m]
 
     # output-related parameters
     :param batchsize: (optional) number of images to generate per mini-batch. Default is 1.
-    :param n_channels: (optional) number of channels to be synthetised. Default is 1.
+    :param input_channels: (optional) list of booleans indicating if each *synthetic* channel is going to be used as an
+    input for the downstream network. This also enables to know how many channels are going to be synthesised. Default
+    is True, which means generating 1 channel, and use it as input (either for plain SR with a synthetic target, or for
+    synthesis with a real target).
     :param output_channel: (optional) the index of the output_channel (i.e. the synthetic regression target), if no real
-    images were provided as regression target. Set to None if using real images as targets. Also, at this point we don't
-    support more than one output channel
+    images were provided as regression target. Set to None if using real images as targets. Default is the first channel
+    (index 0). Also, at this point we don't support more than one output channel.
     :param target_res: (optional) target resolution of the generated images and corresponding label maps.
     If None, the outputs will have the same resolution as the input label maps.
     Can be a number (isotropic resolution), or the path to a 1d numpy array.
@@ -99,7 +102,8 @@ def training(labels_dir,
     generation_classes is not given). The mean of the Gaussian distribution associated to class k in [0, ...K-1] is
     sampled at each mini-batch from N(prior_means[0,k], prior_means[1,k]).
     2) if n_channels>1: an array of shape (2*n_channels, K), where the i-th block of two rows (for i in
-    [0, ... n_channels]) corresponds to the hypreparameters of channel i.
+    [0, ... n_channels]) corresponds to the hypreparameters of channel i. In this case, the channels must be sorted in
+    the same order as indicated by input_channels.
     :param prior_stds: same as prior_means but for the standard deviations of the GMM.
 
     # spatial deformation parameters
@@ -179,6 +183,7 @@ def training(labels_dir,
     """
 
     # various checks
+    n_channels = len(utils.reformat_to_list(input_channels))
     if (images_dir is None) & (output_channel is None):
         raise Exception('please provide a value for output_channel or image_dir')
     elif (images_dir is not None) & (output_channel is not None):
@@ -224,7 +229,7 @@ def training(labels_dir,
                                      n_neutral_labels=n_neutral_labels,
                                      padding_margin=padding_margin,
                                      batchsize=batchsize,
-                                     n_channels=n_channels,
+                                     input_channels=input_channels,
                                      output_channel=output_channel,
                                      target_res=target_res,
                                      output_shape=output_shape,

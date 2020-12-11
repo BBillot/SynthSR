@@ -15,7 +15,7 @@ from ext.neuron import layers as nrn_layers
 
 
 def labels_to_image_model(labels_shape,
-                          n_channels,
+                          input_channels,
                           output_channel,
                           generation_labels,
                           n_neutral_labels,
@@ -41,25 +41,23 @@ def labels_to_image_model(labels_shape,
                           bias_field_std=.3,
                           bias_shape_factor=.025):
     """
-    This function is very similar to labels_to_image_model, but is used for imputation (and possibly synthesis)
-    The main differences are:
-    - the target is a crisp image, rather than a segmentation.
+    This is used for imputation (and possibly synthesis)
+    - the target is a crisp image
     - some channels may only be inputs, and some only targets
     - the target can be a separate real scan
-    - produces additional volumes that tell whether a modality is measured or interpolated at every location
+    - it produces additional volumes that tell whether a modality is measured or interpolated at every location
     - models the fact that registration may be needed to bring images into alignment (i.e., acquisitions are not
       perfectly parallel / ortoghonal)
     """
 
     # vector indicating which synthetic channels will be used as inputs to the UNet
-    is_input_channel = np.ones(n_channels, dtype='bool')
+    n_channels = len(input_channels)
     if output_channel is not None:
         use_real_image = False
-        is_input_channel[output_channel] = False
     else:
         use_real_image = True
-    idx_first_input_channel = np.argmax(is_input_channel)
-    n_input_channels = n_channels - (output_channel is not None) * 1
+    idx_first_input_channel = np.argmax(input_channels)
+    n_input_channels = n_channels - np.sum(np.logical_not(input_channels))
 
     # reformat resolutions
     labels_shape = utils.reformat_to_list(labels_shape)
@@ -78,8 +76,9 @@ def labels_to_image_model(labels_shape,
     # insert dummy slice spacing/thickness for output_channel (they won't be used per se as synthetic regression targets
     # are not downsampled) because an index referring to all channels (input/output) will be used on these two variables
     if output_channel is not None:
-        data_res = np.insert(data_res, output_channel, 1, axis=0)
-        thickness = np.insert(thickness, output_channel, 1, axis=0)
+        if not input_channels[output_channel]:
+            data_res = np.insert(data_res, output_channel, 1, axis=0)
+            thickness = np.insert(thickness, output_channel, 1, axis=0)
 
     # get shapes
     crop_shape, output_shape, padding_margin = get_shapes(labels_shape, output_shape, atlas_res, target_res,
@@ -173,20 +172,24 @@ def labels_to_image_model(labels_shape,
     for i, channel in enumerate(split):
 
         # apply bias field
-        if (bias_field_std is not False) & is_input_channel[i]:
+        if (bias_field_std is not False) & input_channels[i]:
             channel = l2i_ia.bias_field_augmentation(channel, bias_field_std, bias_shape_factor)
 
         # intensity augmentation
         channel = KL.Lambda(lambda x: K.clip(x, 0, 300))(channel)
         channel = l2i_ia.min_max_normalisation(channel)
-        # channel = l2i_ia.gamma_augmentation(channel, std=0.5)
+        channel = l2i_ia.gamma_augmentation(channel, std=0.5)
         kernels_list_cosmetic = l2i_et.get_gaussian_1d_kernels([.5] * 3)
         channel = l2i_et.blur_channel(channel, mask, kernels_list_cosmetic, n_dims, True)
 
-        # synthetic input channels
-        if is_input_channel[i]:
+        # synthetic regression target
+        if i == output_channel:
+            regression_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(channel)
 
-            # simulate registration error relatively to the first channel
+        # synthetic input channels
+        if input_channels[i]:
+
+            # simulate registration error relatively to the first channel (so this does not apply to the first channel)
             if simulate_registration_error & (i != idx_first_input_channel):
                 T, Tinv = l2i_sa.sample_affine_transform(5, 5, False, False, n_dims=n_dims, return_inv=True)
                 channel._keras_shape = tuple(channel.get_shape().as_list())
@@ -228,20 +231,23 @@ def labels_to_image_model(labels_shape,
             if build_reliability_maps:
                 processed_channels.append(rel_map)
 
-        # synthetic regression target
-        else:
-            regression_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(channel)
+    # concatenate channels back
+    if len(processed_channels) > 1:
+        image = KL.Lambda(lambda x: tf.concat(x, axis=-1))(processed_channels)
+    else:
+        image = processed_channels[0]
 
     # if no synthetic image is used as regression target, we need to assign the real image to the target!
     if use_real_image:
         real_image = l2i_ia.min_max_normalisation(real_image)
         regression_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(real_image)
 
-    # concatenate channels back
-    if len(processed_channels) > 1:
-        image = KL.Lambda(lambda x: tf.concat(x, axis=-1))(processed_channels)
-    else:
-        image = processed_channels[0]
+    # resample regression target at target resolution
+    if crop_shape != output_shape:
+        sigma = utils.get_std_blurring_mask_for_downsampling(target_res, atlas_res)
+        kernels_list = l2i_et.get_gaussian_1d_kernels(sigma)
+        regression_target = l2i_et.blur_tensor(regression_target, kernels_list, n_dims=n_dims)
+        regression_target = l2i_et.resample_tensor(regression_target, output_shape)
 
     # build model (dummy layer enables to keep the target when plugging this model to other models)
     image = KL.Lambda(lambda x: x[0], name='image_out')([image, regression_target])

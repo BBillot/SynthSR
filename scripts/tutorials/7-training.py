@@ -43,7 +43,7 @@ labels_folder = '../../data/labels'
 images_folder = None
 
 # general parameters
-channels = 3  # we generate 3 synthetic channel (HR T1, LR T1 and LR T2).
+input_channels = [False, True, True]  # specify which channel will be used as input channel for the network
 output_channel = 0   # index corresponding to the regression target
 target_res = None
 output_shape = 128
@@ -62,7 +62,7 @@ prior_stds = np.concatenate([prior_stds_t1_hr, prior_stds_t1_lr, prior_stds_t2],
 
 # augmentation parameters
 flipping = True
-scaling_bounds = 0.7
+scaling_bounds = 0.1
 rotation_bounds = 8
 shearing_bounds = 0.01
 translation_bounds = False
@@ -70,7 +70,7 @@ nonlin_std = 2.
 bias_field_std = 0.2
 
 # blurring/downsampling parameters
-data_res = np.array([[1., 1., 3.], [1., 4.5, 1.]])
+data_res = np.array([[1., 1., 3.], [1., 4.5, 1.]])  # slice spacing for the input channels only
 thickness = np.array([[1., 1., 3.], [1., 3., 1.]])
 downsample = True
 build_reliability_maps = True
@@ -89,7 +89,7 @@ training(labels_folder,
          path_generation_labels=generation_labels,
          path_generation_classes=generation_classes,
          batchsize=1,
-         n_channels=channels,
+         input_channels=input_channels,
          output_channel=output_channel,
          target_res=target_res,
          output_shape=output_shape,

@@ -15,12 +15,12 @@ class BrainGenerator:
                  labels_dir,
                  prior_means,
                  prior_stds,
+                 generation_labels,
                  images_dir=None,
-                 generation_labels=None,
                  n_neutral_labels=None,
                  padding_margin=None,
                  batchsize=1,
-                 n_channels=1,
+                 input_channels=1,
                  output_channel=0,
                  target_res=None,
                  output_shape=None,
@@ -54,12 +54,11 @@ class BrainGenerator:
         # these values refer to the RAS axes.
 
         # label maps-related parameters
-        :param generation_labels: (optional) list of all possible label values in the input label maps.
-        Default is None, where the label values are directly gotten from the provided label maps.
-        If not None, can be a sequence or a 1d numpy array, or the path to a 1d numpy array.
-        If flipping is true (i.e. right/left flipping is enabled), generation_labels should be organised as follows:
-        background label first, then non-sided labels (e.g. CSF, brainstem, etc.), then all the structures of the same
-        hemisphere (can be left or right), and finally all the corresponding contralateral structures in the same order.
+        :param generation_labels: list of all possible label values in the input label maps.
+        Must be the path to a 1d numpy array, which should be organised as follows: background label first, then
+        non-sided labels (e.g. CSF, brainstem, etc.), then all the structures of the same hemisphere (can be left or
+        right), and finally all the corresponding contralateral structures (in the same order).
+        Example: [background_label, non-sided_1, ..., non-sided_n, left_1, ..., left_m, right_1, ..., right_m]
         :param n_neutral_labels: (optional) number of non-sided generation labels.
         Default is total number of label values.
         :param padding_margin: (optional) margin by which to pad the input labels with zeros.
@@ -69,11 +68,13 @@ class BrainGenerator:
 
         # output-related parameters
         :param batchsize: (optional) numbers of images to generate per mini-batch. Default is 1.
-        :param n_channels: (optional) number of channels to be synthetised (including input and output channels).
-        Default is 1.
+        :param input_channels: (optional) list of booleans indicating if each synthetic channel is going to be used as
+        an input for the downstream network. This also enables to know how many channels are going to be synthesised.
+        Default is True, which means generating 1 channel, and use it as input (either for plain SR with a synthetic
+        target, or for synthesis with a real target).
         :param output_channel: (optional) the index of the output_channel (i.e. the synthetic regression target), if no
-        real images were provided as regression target. Set to None if using real images as targets. Also, at this point
-        we don't support more than one output channel
+        real images were provided as regression target. Set to None if using real images as targets. Default is the
+        first channel (index 0). Also, at this point we don't support more than one output channel.
         :param target_res: (optional) target resolution of the generated images and corresponding label maps.
         If None, the outputs will have the same resolution as the input label maps.
         Can be a number (isotropic resolution), a sequence, a 1d numpy array, or the path to a 1d numpy array.
@@ -97,7 +98,8 @@ class BrainGenerator:
         generation_classes is not given). The mean of the Gaussian distribution associated to class k in [0, ...K-1] is
         sampled at each mini-batch from N(prior_means[0,k], prior_means[1,k]).
         2) if n_channels>1: an array of shape (2*n_channels, K), where the i-th block of two rows (for i in
-        [0, ... n_channels]) corresponds to the hypreparameters of channel i.
+        [0, ... n_channels]) corresponds to the hypreparameters of channel i. In this case, the channels must be sorted
+        in the same order as indicated by input_channels.
         3) the path to a numpy array corresponding to cases 1 or 2.
         :param prior_stds: same as prior_means but for the standard deviations of the GMM.
 
@@ -173,7 +175,6 @@ class BrainGenerator:
         # generation parameters
         self.labels_shape, self.aff, self.n_dims, _, self.header, self.atlas_res = \
             utils.get_volume_info(self.labels_paths[0], aff_ref=np.eye(4))
-        self.n_channels = n_channels
         if generation_labels is not None:
             self.generation_labels = utils.load_array_if_path(generation_labels)
         else:
@@ -183,6 +184,9 @@ class BrainGenerator:
         else:
             self.n_neutral_labels = self.generation_labels.shape[0]
         self.batchsize = batchsize
+        self.input_channels = np.array(utils.reformat_to_list(input_channels))
+        self.output_channel = output_channel
+        self.n_channels = len(self.input_channels)
 
         # output parameters
         self.target_res = utils.load_array_if_path(target_res)
@@ -203,7 +207,6 @@ class BrainGenerator:
             self.generation_classes = np.arange(self.generation_labels.shape[0])
         self.prior_means = utils.load_array_if_path(prior_means)
         self.prior_stds = utils.load_array_if_path(prior_stds)
-        self.output_channel = output_channel
 
         # spatial transformation parameters
         self.scaling_bounds = utils.load_array_if_path(scaling_bounds)
@@ -237,7 +240,7 @@ class BrainGenerator:
     def _build_labels_to_image_model(self):
         # build_model
         lab_to_im_model = labels_to_image_model(labels_shape=self.labels_shape,
-                                                n_channels=self.n_channels,
+                                                input_channels=self.input_channels,
                                                 output_channel=self.output_channel,
                                                 generation_labels=self.generation_labels,
                                                 n_neutral_labels=self.n_neutral_labels,

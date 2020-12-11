@@ -333,7 +333,7 @@ def reformat_to_list(var, length=None, load_as_numpy=False, dtype=None):
     return var
 
 
-def reformat_to_n_channels_array(var, n_dims=3, n_channels=1, idx_dummy_row=None):
+def reformat_to_n_channels_array(var, n_dims=3, n_channels=1):
     """This function takes an int, float, list or tuple and reformat it to an array of shape (n_channels, n_dims).
     If resolution is a str, it will be assumed to be the path of a numpy array.
     If resolution is a numpy array, it will be checked to have shape (n_channels, n_dims).
@@ -460,8 +460,8 @@ def strip_suffix(path):
     path = path.replace('seg_1_', '')
     path = path.replace('seg_2_', '')
     path = path.replace('_aseg', '')
-    path = path.replace('labels', '')
-    path = path.replace('.labels', '')
+    path = path.replace('aseg', '')
+    path = path.replace('.aseg', '')
     path = path.replace('_aseg_1', '')
     path = path.replace('_aseg_2', '')
     path = path.replace('aseg_1_', '')

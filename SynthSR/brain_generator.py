@@ -127,7 +127,8 @@ class BrainGenerator:
         :param nonlin_shape_factor: (optional) if nonlin_std is not False, factor between the shapes of the input label
         maps and the shape of the input non-linear tensor.
         :param simulate_registration_error: (optional) whether to simulate registration errors between synthesised
-        channels. Default is True.
+        channels. Can be a single value, or one per channel (in the latter case, the first channel is  used as reference
+        simulate_registration_error is False by definition, even if set to True!). Default is True.
 
         # blurring/resampling parameters
         :param data_res: (optional) specific acquisition resolution to mimic, as opposed to random resolution sampled

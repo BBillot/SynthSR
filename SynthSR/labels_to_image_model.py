@@ -59,6 +59,10 @@ def labels_to_image_model(labels_shape,
     idx_first_input_channel = np.argmax(input_channels)
     n_input_channels = n_channels - np.sum(np.logical_not(input_channels))
 
+    # if only 1 value is given for  simulate_registration_error, then replicate for all channels
+    if type(simulate_registration_error)==bool:
+        simulate_registration_error = [simulate_registration_error] * n_channels
+
     # reformat resolutions
     labels_shape = utils.reformat_to_list(labels_shape)
     n_dims, _ = utils.get_dims(labels_shape)
@@ -190,7 +194,7 @@ def labels_to_image_model(labels_shape,
         if input_channels[i]:
 
             # simulate registration error relatively to the first channel (so this does not apply to the first channel)
-            if simulate_registration_error & (i != idx_first_input_channel):
+            if simulate_registration_error[i] & (i != idx_first_input_channel):
                 T, Tinv = l2i_sa.sample_affine_transform(5, 5, False, False, n_dims=n_dims, return_inv=True)
                 channel._keras_shape = tuple(channel.get_shape().as_list())
                 channel = nrn_layers.SpatialTransformer(interp_method='linear')([channel, T])
@@ -218,7 +222,7 @@ def labels_to_image_model(labels_shape,
                 channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', build_reliability_map=True)
 
             # align the channels back to the first one with a small error
-            if simulate_registration_error & (i != idx_first_input_channel):
+            if simulate_registration_error[i] & (i != idx_first_input_channel):
                 Terr = l2i_sa.sample_affine_transform(.5, .5, False, False, n_dims=n_dims, return_inv=False)
                 Tinv_err = KL.Lambda(lambda x: tf.matmul(x[0], x[1]))([Terr, Tinv])
                 channel._keras_shape = tuple(channel.get_shape().as_list())

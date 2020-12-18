@@ -20,6 +20,7 @@ def training(labels_dir,
              path_generation_labels,
              images_dir=None,
              path_generation_classes=None,
+             FS_sort=True,
              batchsize=1,
              input_channels=True,
              output_channel=0,
@@ -73,6 +74,7 @@ def training(labels_dir,
     labels (e.g. CSF, brainstem, etc.), then all the structures of the same hemisphere (can be left or right), and
     finally all the corresponding contralateral structures (in the same order).
     Example: [background_label, non-sided_1, ..., non-sided_n, left_1, ..., left_m, right_1, ..., right_m]
+    :param FS_sort: whether us FSsort when creating list of labels with utils.get_list_labels. Default is True
 
     # output-related parameters
     :param batchsize: (optional) number of images to generate per mini-batch. Default is 1.
@@ -129,7 +131,8 @@ def training(labels_dir,
     :param nonlin_shape_factor: (optional) Ratio between the size of the input label maps and the size of the sampled
     tensor for synthesising the elastic deformation field.
     :param simulate_registration_error: (optional) whether to simulate registration errors between synthesised channels.
-    Default is True.
+    Can be a single value (same for all channels) or one value per channel (in the latter case, the first channel is
+    used as reference simulate_registration_error is False by definition, even if set to True!). Default is True.
 
     # blurring/resampling parameters
     :param data_res: (optional) specific acquisition resolution to mimic, as opposed to random resolution sampled when
@@ -207,7 +210,7 @@ def training(labels_dir,
     # get label lists
     generation_labels, n_neutral_labels = utils.get_list_labels(label_list=path_generation_labels,
                                                                 labels_dir=labels_dir,
-                                                                FS_sort=True)
+                                                                FS_sort=FS_sort)
 
     # prepare model folder
     utils.mkdir(model_dir)

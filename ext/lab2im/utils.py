@@ -247,7 +247,7 @@ def get_list_labels(label_list=None, labels_dir=None, save_label_list=None, FS_s
     if FS_sort:
         return np.int32(label_list), n_neutral_labels
     else:
-        return np.int32(label_list)
+        return np.int32(label_list), None
 
 
 def load_array_if_path(var, load_as_numpy=True):

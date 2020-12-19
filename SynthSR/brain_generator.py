@@ -72,9 +72,9 @@ class BrainGenerator:
         an input for the downstream network. This also enables to know how many channels are going to be synthesised.
         Default is True, which means generating 1 channel, and use it as input (either for plain SR with a synthetic
         target, or for synthesis with a real target).
-        :param output_channel: (optional) the index of the output_channel (i.e. the synthetic regression target), if no
-        real images were provided as regression target. Set to None if using real images as targets. Default is the
-        first channel (index 0). Also, at this point we don't support more than one output channel.
+        :param output_channel: (optional) a list with the indices of the output channels  (i.e. the synthetic regression
+        targets), if no real images were provided as regression target. Set to None if using real images as targets.
+        Default is the first channel (index 0).
         :param target_res: (optional) target resolution of the generated images and corresponding label maps.
         If None, the outputs will have the same resolution as the input label maps.
         Can be a number (isotropic resolution), a sequence, a 1d numpy array, or the path to a 1d numpy array.

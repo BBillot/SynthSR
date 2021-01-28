@@ -59,6 +59,10 @@ def labels_to_image_model(labels_shape,
     idx_first_input_channel = np.argmax(input_channels)
     n_input_channels = n_channels - np.sum(np.logical_not(input_channels))
 
+    # if only 1 value is given for  simulate_registration_error, then replicate for all channels
+    if type(simulate_registration_error)==bool:
+        simulate_registration_error = [simulate_registration_error] * n_channels
+
     # reformat resolutions
     labels_shape = utils.reformat_to_list(labels_shape)
     n_dims, _ = utils.get_dims(labels_shape)
@@ -73,12 +77,14 @@ def labels_to_image_model(labels_shape,
     else:
         target_res = utils.reformat_to_n_channels_array(target_res, n_dims)[0]
     thickness = utils.reformat_to_n_channels_array(thickness, n_dims=n_dims, n_channels=n_input_channels)
-    # insert dummy slice spacing/thickness for output_channel (they won't be used per se as synthetic regression targets
-    # are not downsampled) because an index referring to all channels (input/output) will be used on these two variables
-    if output_channel is not None:
-        if not input_channels[output_channel]:
-            data_res = np.insert(data_res, output_channel, 1, axis=0)
-            thickness = np.insert(thickness, output_channel, 1, axis=0)
+
+    # Eugenio removed this: output channels are normal synthetic channels...
+    # # insert dummy slice spacing/thickness for output_channel (they won't be used per se as synthetic regression targets
+    # # are not downsampled) because an index referring to all channels (input/output) will be used on these two variables
+    # if output_channel is not None:
+    #     if not input_channels[output_channel]:
+    #         data_res = np.insert(data_res, output_channel, 1, axis=0)
+    #         thickness = np.insert(thickness, output_channel, 1, axis=0)
 
     # get shapes
     crop_shape, output_shape, padding_margin = get_shapes(labels_shape, output_shape, atlas_res, target_res,
@@ -168,7 +174,7 @@ def labels_to_image_model(labels_shape,
 
     # loop over synthetic channels
     processed_channels = list()
-    regression_target = None
+    regression_target = list()
     for i, channel in enumerate(split):
 
         # apply bias field
@@ -183,14 +189,21 @@ def labels_to_image_model(labels_shape,
         channel = l2i_et.blur_channel(channel, mask, kernels_list_cosmetic, n_dims, True)
 
         # synthetic regression target
-        if i == output_channel:
-            regression_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(channel)
+        if any(c==i for c in output_channel):
+            target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'))(channel)
+            # resample regression target at target resolution if needed
+            if crop_shape != output_shape:
+                sigma = utils.get_std_blurring_mask_for_downsampling(target_res, atlas_res)
+                kernels_list = l2i_et.get_gaussian_1d_kernels(sigma)
+                target = l2i_et.blur_tensor(target, kernels_list, n_dims=n_dims)
+                target = l2i_et.resample_tensor(target, output_shape)
+            regression_target.append(target)
 
         # synthetic input channels
         if input_channels[i]:
 
             # simulate registration error relatively to the first channel (so this does not apply to the first channel)
-            if simulate_registration_error & (i != idx_first_input_channel):
+            if simulate_registration_error[i] & (i != idx_first_input_channel):
                 T, Tinv = l2i_sa.sample_affine_transform(5, 5, False, False, n_dims=n_dims, return_inv=True)
                 channel._keras_shape = tuple(channel.get_shape().as_list())
                 channel = nrn_layers.SpatialTransformer(interp_method='linear')([channel, T])
@@ -218,7 +231,7 @@ def labels_to_image_model(labels_shape,
                 channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', build_reliability_map=True)
 
             # align the channels back to the first one with a small error
-            if simulate_registration_error & (i != idx_first_input_channel):
+            if simulate_registration_error[i] & (i != idx_first_input_channel):
                 Terr = l2i_sa.sample_affine_transform(.5, .5, False, False, n_dims=n_dims, return_inv=False)
                 Tinv_err = KL.Lambda(lambda x: tf.matmul(x[0], x[1]))([Terr, Tinv])
                 channel._keras_shape = tuple(channel.get_shape().as_list())
@@ -240,18 +253,16 @@ def labels_to_image_model(labels_shape,
     # if no synthetic image is used as regression target, we need to assign the real image to the target!
     if use_real_image:
         real_image = l2i_ia.min_max_normalisation(real_image)
-        regression_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(real_image)
-
-    # resample regression target at target resolution
-    if crop_shape != output_shape:
-        sigma = utils.get_std_blurring_mask_for_downsampling(target_res, atlas_res)
-        kernels_list = l2i_et.get_gaussian_1d_kernels(sigma)
-        regression_target = l2i_et.blur_tensor(regression_target, kernels_list, n_dims=n_dims)
-        regression_target = l2i_et.resample_tensor(regression_target, output_shape)
+        final_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(real_image)
+    else:
+        if len(regression_target) > 1:
+            final_target = KL.Lambda(lambda x: tf.concat(x, axis=-1), name='regression_target')(regression_target)
+        else:
+            final_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(regression_target[0])
 
     # build model (dummy layer enables to keep the target when plugging this model to other models)
-    image = KL.Lambda(lambda x: x[0], name='image_out')([image, regression_target])
-    brain_model = Model(inputs=list_inputs, outputs=[image, regression_target])
+    image = KL.Lambda(lambda x: x[0], name='image_out')([image, final_target])
+    brain_model = Model(inputs=list_inputs, outputs=[image, final_target])
 
     return brain_model
 

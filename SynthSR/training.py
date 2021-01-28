@@ -20,6 +20,7 @@ def training(labels_dir,
              path_generation_labels,
              images_dir=None,
              path_generation_classes=None,
+             FS_sort=True,
              batchsize=1,
              input_channels=True,
              output_channel=0,
@@ -73,6 +74,7 @@ def training(labels_dir,
     labels (e.g. CSF, brainstem, etc.), then all the structures of the same hemisphere (can be left or right), and
     finally all the corresponding contralateral structures (in the same order).
     Example: [background_label, non-sided_1, ..., non-sided_n, left_1, ..., left_m, right_1, ..., right_m]
+    :param FS_sort: whether us FSsort when creating list of labels with utils.get_list_labels. Default is True
 
     # output-related parameters
     :param batchsize: (optional) number of images to generate per mini-batch. Default is 1.
@@ -80,9 +82,9 @@ def training(labels_dir,
     input for the downstream network. This also enables to know how many channels are going to be synthesised. Default
     is True, which means generating 1 channel, and use it as input (either for plain SR with a synthetic target, or for
     synthesis with a real target).
-    :param output_channel: (optional) the index of the output_channel (i.e. the synthetic regression target), if no real
-    images were provided as regression target. Set to None if using real images as targets. Default is the first channel
-    (index 0). Also, at this point we don't support more than one output channel.
+    :param output_channel: (optional) a list with the indices of the output channels  (i.e. the synthetic regression
+    targets), if no real images were provided as regression target. Set to None if using real images as targets. Default
+    is the first channel (index 0).
     :param target_res: (optional) target resolution of the generated images and corresponding label maps.
     If None, the outputs will have the same resolution as the input label maps.
     Can be a number (isotropic resolution), or the path to a 1d numpy array.
@@ -129,7 +131,8 @@ def training(labels_dir,
     :param nonlin_shape_factor: (optional) Ratio between the size of the input label maps and the size of the sampled
     tensor for synthesising the elastic deformation field.
     :param simulate_registration_error: (optional) whether to simulate registration errors between synthesised channels.
-    Default is True.
+    Can be a single value (same for all channels) or one value per channel (in the latter case, the first channel is
+    used as reference simulate_registration_error is False by definition, even if set to True!). Default is True.
 
     # blurring/resampling parameters
     :param data_res: (optional) specific acquisition resolution to mimic, as opposed to random resolution sampled when
@@ -174,40 +177,66 @@ def training(labels_dir,
     possible, this is equivalent to the frequency at which the models are saved.
     :param regression_metric: (optional) loss used in training. Can be 'l1' (default), 'l2', or 'ssim'
     :param work_with_residual_channel: (optional) if you have a channel that is similar to the output (e.g., in
-    imputation), it is convenient to predict the residual, rather than the image from scratch. Set this parameter to the
-    index of the synthetic channel you want to add the residual to.
+    imputation), it is convenient to predict the residual, rather than the image from scratch. This parameter is a list
+    of indices of the synthetic channels you want to add the residual to (must have the same length as output_channels,
+    or have length equal to 1 if real images are used)
     :param loss_cropping: (option)  to crop the posteriors when evaluating the loss function (specify the output size
     Can be an int, or the path to a 1d numpy array.
     :param load_model_file: (optional) path of an already saved model to load before starting the training.
     :param initial_epoch: (optional) initial epoch for training. Useful for resuming training.
     """
 
-    # various checks
     n_channels = len(utils.reformat_to_list(input_channels))
+
+    # convert output_channel and work_with_residual_channel to lists
+    if output_channel is not None:
+        if type(output_channel) != list:
+            output_channel = [output_channel]
+        n_output_channels = len(output_channel)
+    else:
+        n_output_channels = 1
+
+    if work_with_residual_channel is not None:
+        if type(work_with_residual_channel) != list:
+            work_with_residual_channel = [work_with_residual_channel]
+
+    # various checks
     if (images_dir is None) & (output_channel is None):
         raise Exception('please provide a value for output_channel or image_dir')
     elif (images_dir is not None) & (output_channel is not None):
         raise Exception('please provide a value either for output_channel or image_dir, but not both at the same time')
     if output_channel is not None:
-        if output_channel >= n_channels:
+        if any(x>=n_channels for x in output_channel):
             raise Exception('output_channel cannot be greater than the total number of channels')
 
     # check work_with_residual_channel
     if work_with_residual_channel is not None:
-        if work_with_residual_channel >= n_channels:  # Check that it is lower than the total number of channels
+        if len(work_with_residual_channel)==1:
+            if (images_dir is not None) and len(output_channel)!=1:
+                raise Exception('When using one residual channel, you need either to work with real images or use a single synthetic channel as output')
+        else:
+            if len(work_with_residual_channel) != len(output_channel):
+                raise Exception('The number or residual channels and output channels must be the same')
+
+        if any(x>=n_channels for x in work_with_residual_channel):
             raise Exception('work_with_residual_channel cannot be greater than the total number of channels')
-        if work_with_residual_channel == output_channel:  # Check that it has been assigned to an input channels
-            raise Exception('residual channel must be one of the inputs')
-        if output_channel is not None:
-            if work_with_residual_channel > output_channel:  # consider index output_chanel
-                work_with_residual_channel -= 1
+
+        # Eugenio: I don't see the problem with this, when one wants to sharpen a channel
+        # if work_with_residual_channel == output_channel:  # Check that it has been assigned to an input channels
+        #     raise Exception('residual channel must be one of the inputs')
+
+        # Same here ...
+        # if output_channel is not None:
+        #     if work_with_residual_channel > output_channel:  # consider index output_chanel
+        #         work_with_residual_channel -= 1
+
         if build_reliability_maps:  # consider indices of reliability maps
             work_with_residual_channel = 2 * work_with_residual_channel
 
     # get label lists
     generation_labels, n_neutral_labels = utils.get_list_labels(label_list=path_generation_labels,
                                                                 labels_dir=labels_dir,
-                                                                FS_sort=True)
+                                                                FS_sort=FS_sort)
 
     # prepare model folder
     utils.mkdir(model_dir)
@@ -262,7 +291,7 @@ def training(labels_dir,
                                  input_shape=unet_input_shape,
                                  nb_levels=n_levels,
                                  conv_size=conv_size,
-                                 nb_labels=1,
+                                 nb_labels=n_output_channels,
                                  feat_mult=feat_multiplier,
                                  nb_conv_per_level=nb_conv_per_level,
                                  conv_dropout=dropout,
@@ -277,7 +306,7 @@ def training(labels_dir,
 
     # model
     model = Model(unet_model.inputs, [unet_model.get_layer('unet_prediction').output])
-    model = metrics_model(input_shape=unet_input_shape[:-1] + [n_channels - (output_channel is not None)*1],
+    model = metrics_model(input_shape=unet_input_shape[:-1] + [n_output_channels],
                           input_model=model,
                           loss_cropping=loss_cropping,
                           metrics=regression_metric,

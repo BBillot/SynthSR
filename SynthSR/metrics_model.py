@@ -8,27 +8,10 @@ from keras.models import Model
 from ext.lab2im import utils
 
 
-def metrics_model(input_shape,
-                  input_model=None,
-                  loss_cropping=16,
-                  metrics='l1',
-                  name=None,
-                  work_with_residual_channel=None):
-
-    # naming the model
-    model_name = name
+def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residual_channel=None):
 
     # first layer: input
-    name = '%s_input' % model_name
-    if input_model is None:
-        input_tensor = KL.Input(shape=input_shape, name=name)
-        last_tensor = input_tensor
-    else:
-        input_tensor = input_model.inputs
-        last_tensor = input_model.outputs
-        if isinstance(last_tensor, list):
-            last_tensor = last_tensor[0]
-        last_tensor = KL.Reshape(input_shape, name='predicted_output')(last_tensor)
+    last_tensor = input_model.outputs[0]
 
     # add residual if needed
     if work_with_residual_channel is not None:
@@ -52,27 +35,18 @@ def metrics_model(input_shape,
         # format loss_cropping
         target_shape = image_gt.get_shape().as_list()[1:-1]
         n_dims, _ = utils.get_dims(target_shape)
-        if isinstance(loss_cropping, (int, float)):
-            loss_cropping = [loss_cropping] * n_dims
-        if isinstance(loss_cropping, (list, tuple)):
-            if len(loss_cropping) == 1:
-                loss_cropping = loss_cropping * n_dims
-            elif len(loss_cropping) != n_dims:
-                raise TypeError('loss_cropping should be float, list of size 1 or {0}, or None. '
-                                'Had {1}'.format(n_dims, loss_cropping))
+        loss_cropping = utils.reformat_to_list(loss_cropping, length=n_dims)
+
         # perform cropping
         begin_idx = [int((target_shape[i] - loss_cropping[i]) / 2) for i in range(n_dims)]
-        image_gt = KL.Lambda(
-            lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
-                               size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
-            name='cropping_gt')(image_gt)
-        last_tensor = KL.Lambda(
-            lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
-                               size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
-            name='cropping_pred')(last_tensor)
+        image_gt = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
+                                                size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
+                             name='cropping_gt')(image_gt)
+        last_tensor = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
+                                size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
+                                name='cropping_pred')(last_tensor)
 
     # metrics is computed as part of the model
-
     if metrics == 'l2':
         last_tensor = KL.Subtract()([last_tensor, image_gt])
         last_tensor = KL.Lambda(lambda x: K.mean(K.square(x)), name='L2_loss')(last_tensor)
@@ -105,7 +79,7 @@ def metrics_model(input_shape,
         raise Exception('metrics should either be "l1" or "l2" or "ssim", got {}'.format(metrics))
 
     # create the model and return
-    model = Model(inputs=input_tensor, outputs=last_tensor, name=model_name)
+    model = Model(inputs=input_model.inputs, outputs=last_tensor)
     return model
 
 

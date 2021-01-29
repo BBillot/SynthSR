@@ -296,11 +296,9 @@ def training(labels_dir,
 
     # model
     model = Model(unet_model.inputs, [unet_model.get_layer('unet_prediction').output])
-    model = metrics_model(input_shape=unet_input_shape[:-1] + [n_output_channels],
-                          input_model=model,
+    model = metrics_model(input_model=model,
                           loss_cropping=loss_cropping,
                           metrics=regression_metric,
-                          name='metrics_model',
                           work_with_residual_channel=work_with_residual_channel)
     if load_model_file is not None:
         print('loading', load_model_file)

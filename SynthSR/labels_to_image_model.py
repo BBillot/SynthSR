@@ -52,31 +52,21 @@ def labels_to_image_model(labels_shape,
 
     # vector indicating which synthetic channels will be used as inputs to the UNet
     n_channels = len(input_channels)
-    if output_channel is not None:
-        use_real_image = False
-    else:
-        use_real_image = True
+    use_real_image = False if output_channel is not None else True
     idx_first_input_channel = np.argmax(input_channels)
     n_input_channels = n_channels - np.sum(np.logical_not(input_channels))
 
     # if only 1 value is given for  simulate_registration_error, then replicate for all channels
-    if type(simulate_registration_error)==bool:
-        simulate_registration_error = [simulate_registration_error] * n_channels
+    simulate_registration_error = utils.reformat_to_list(simulate_registration_error, length=n_channels)
 
     # reformat resolutions
     labels_shape = utils.reformat_to_list(labels_shape)
     n_dims, _ = utils.get_dims(labels_shape)
-    atlas_res = utils.reformat_to_n_channels_array(atlas_res, n_dims=n_dims, n_channels=n_channels)
-    if data_res is None:  # data_res assumed to be the same as the atlas
-        data_res = atlas_res
-    else:
-        data_res = utils.reformat_to_n_channels_array(data_res, n_dims=n_dims, n_channels=n_input_channels)
+    atlas_res = utils.reformat_to_n_channels_array(atlas_res, n_dims, n_channels)
+    data_res = atlas_res if data_res is None else utils.reformat_to_n_channels_array(data_res, n_dims, n_input_channels)
     atlas_res = atlas_res[0]
-    if target_res is None:
-        target_res = atlas_res
-    else:
-        target_res = utils.reformat_to_n_channels_array(target_res, n_dims)[0]
-    thickness = utils.reformat_to_n_channels_array(thickness, n_dims=n_dims, n_channels=n_input_channels)
+    target_res = atlas_res if target_res is None else utils.reformat_to_n_channels_array(target_res, n_dims)[0]
+    thickness = utils.reformat_to_n_channels_array(thickness, n_dims, n_input_channels)
 
     # Eugenio removed this: output channels are normal synthetic channels...
     # # insert dummy slice spacing/thickness for output_channel (they won't be used per se as synthetic regression targets
@@ -189,15 +179,14 @@ def labels_to_image_model(labels_shape,
         channel = l2i_et.blur_channel(channel, mask, kernels_list_cosmetic, n_dims, True)
 
         # synthetic regression target
-        if any(c==i for c in output_channel):
-            target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'))(channel)
+        if any(c == i for c in output_channel):
             # resample regression target at target resolution if needed
             if crop_shape != output_shape:
                 sigma = utils.get_std_blurring_mask_for_downsampling(target_res, atlas_res)
                 kernels_list = l2i_et.get_gaussian_1d_kernels(sigma)
-                target = l2i_et.blur_tensor(target, kernels_list, n_dims=n_dims)
-                target = l2i_et.resample_tensor(target, output_shape)
-            regression_target.append(target)
+                channel = l2i_et.blur_tensor(channel, kernels_list, n_dims=n_dims)
+                channel = l2i_et.resample_tensor(channel, output_shape)
+            regression_target.append(channel)
 
         # synthetic input channels
         if input_channels[i]:

@@ -18,9 +18,6 @@ def metrics_model(input_shape,
     # naming the model
     model_name = name
 
-    if len(input_shape)==3:
-        input_shape.append(1)
-
     # first layer: input
     name = '%s_input' % model_name
     if input_model is None:
@@ -35,14 +32,15 @@ def metrics_model(input_shape,
 
     # add residual if needed
     if work_with_residual_channel is not None:
-        slice_list=list()
+        slice_list = list()
         for c in work_with_residual_channel:
-            slice = KL.Lambda(lambda x: tf.expand_dims(x[:, :, :, :, c], axis=-1))(input_model.get_layer('image_out').output)
-            slice_list.append(slice)
+            tensor = input_model.get_layer('image_out').output
+            tmp_slice = KL.Lambda(lambda x: tf.expand_dims(x[..., c], axis=-1))(tensor)
+            slice_list.append(tmp_slice)
         if len(slice_list) > 1:
             slices = KL.Lambda(lambda x: tf.concat(x, axis=-1))(slice_list)
         else:
-            image = slice_list[0]
+            slices = slice_list[0]
         last_tensor = KL.Add()([slices, last_tensor])
 
     # get crisp, ground truth image
@@ -86,7 +84,7 @@ def metrics_model(input_shape,
         # TODO: true 3D
 
         # TODO: multiple output channels
-        if image_gt.get_shape()[-1]>1:
+        if image_gt.get_shape()[-1] > 1:
             raise Exception('SSIM metric does not currently support multiple channels')
 
         ssim_xy = KL.Lambda(

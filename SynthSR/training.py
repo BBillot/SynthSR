@@ -74,7 +74,7 @@ def training(labels_dir,
     labels (e.g. CSF, brainstem, etc.), then all the structures of the same hemisphere (can be left or right), and
     finally all the corresponding contralateral structures (in the same order).
     Example: [background_label, non-sided_1, ..., non-sided_n, left_1, ..., left_m, right_1, ..., right_m]
-    :param FS_sort: whether us FSsort when creating list of labels with utils.get_list_labels. Default is True
+    :param FS_sort: whether us FS_sort when creating list of labels with utils.get_list_labels. Default is True.
 
     # output-related parameters
     :param batchsize: (optional) number of images to generate per mini-batch. Default is 1.
@@ -190,8 +190,7 @@ def training(labels_dir,
 
     # convert output_channel and work_with_residual_channel to lists
     if output_channel is not None:
-        if type(output_channel) != list:
-            output_channel = [output_channel]
+        output_channel = list(utils.reformat_to_list(output_channel))
         n_output_channels = len(output_channel)
     else:
         n_output_channels = 1
@@ -206,8 +205,8 @@ def training(labels_dir,
     elif (images_dir is not None) & (output_channel is not None):
         raise Exception('please provide a value either for output_channel or image_dir, but not both at the same time')
     if output_channel is not None:
-        if any(x>=n_channels for x in output_channel):
-            raise Exception('output_channel cannot be greater than the total number of channels')
+        if any(x >= n_channels for x in output_channel):
+            raise Exception('indices in output_channel cannot be greater than the total number of channels')
 
     # check work_with_residual_channel
     if work_with_residual_channel is not None:
@@ -218,17 +217,8 @@ def training(labels_dir,
             if len(work_with_residual_channel) != len(output_channel):
                 raise Exception('The number or residual channels and output channels must be the same')
 
-        if any(x>=n_channels for x in work_with_residual_channel):
-            raise Exception('work_with_residual_channel cannot be greater than the total number of channels')
-
-        # Eugenio: I don't see the problem with this, when one wants to sharpen a channel
-        # if work_with_residual_channel == output_channel:  # Check that it has been assigned to an input channels
-        #     raise Exception('residual channel must be one of the inputs')
-
-        # Same here ...
-        # if output_channel is not None:
-        #     if work_with_residual_channel > output_channel:  # consider index output_chanel
-        #         work_with_residual_channel -= 1
+        if any(x >= n_channels for x in work_with_residual_channel):
+            raise Exception('indices in work_with_residual_channel cannot be greater than the total number of channels')
 
         if build_reliability_maps:  # consider indices of reliability maps
             work_with_residual_channel = 2 * work_with_residual_channel

@@ -68,7 +68,7 @@ class BrainGenerator:
 
         # output-related parameters
         :param batchsize: (optional) numbers of images to generate per mini-batch. Default is 1.
-        :param input_channels: (optional) list of booleans indicating if each synthetic channel is going to be used as
+        :param input_channels: (optional) list of booleans indicating if each *synthetic* channel is going to be used as
         an input for the downstream network. This also enables to know how many channels are going to be synthesised.
         Default is True, which means generating 1 channel, and use it as input (either for plain SR with a synthetic
         target, or for synthesis with a real target).

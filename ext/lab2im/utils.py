@@ -199,13 +199,8 @@ def get_list_labels(label_list=None, labels_dir=None, save_label_list=None, FS_s
     # compute label list from all label files
     elif labels_dir is not None:
         print('Compiling list of unique labels')
-        # prepare data files
-        if ('.nii.gz' in labels_dir) | ('.nii' in labels_dir) | ('.mgz' in labels_dir) | ('.npz' in labels_dir):
-            labels_paths = [labels_dir]
-        else:
-            labels_paths = list_images_in_folder(labels_dir)
-        assert len(labels_paths) > 0, "Could not find any training data"
         # go through all labels files and compute unique list of labels
+        labels_paths = list_images_in_folder(labels_dir)
         label_list = np.empty(0)
         for lab_idx, path in enumerate(labels_paths):
             print_loop_info(lab_idx, len(labels_paths), 10)
@@ -299,7 +294,7 @@ def reformat_to_list(var, length=None, load_as_numpy=False, dtype=None):
     if var is None:
         return None
     var = load_array_if_path(var, load_as_numpy=load_as_numpy)
-    if isinstance(var, (int, float)):
+    if isinstance(var, (int, float, np.int, np.int32, np.int64, np.float, np.float32, np.float64)):
         var = [var]
     elif isinstance(var, tuple):
         var = list(var)
@@ -364,12 +359,16 @@ def reformat_to_n_channels_array(var, n_dims=3, n_channels=1):
 # ----------------------------------------------- path-related functions -----------------------------------------------
 
 
-def list_images_in_folder(path_dir):
+def list_images_in_folder(path_dir, include_single_image=True):
     """List all files with extension nii, nii.gz, mgz, or npz whithin a folder."""
-    list_images = sorted(glob.glob(os.path.join(path_dir, '*nii.gz')) +
-                         glob.glob(os.path.join(path_dir, '*nii')) +
-                         glob.glob(os.path.join(path_dir, '*.mgz')) +
-                         glob.glob(os.path.join(path_dir, '*.npz')))
+    if include_single_image & \
+       (('.nii.gz' in path_dir) | ('.nii' in path_dir) | ('.mgz' in path_dir) | ('.npz' in path_dir)):
+        list_images = [path_dir]
+    else:
+        list_images = sorted(glob.glob(os.path.join(path_dir, '*nii.gz')) +
+                             glob.glob(os.path.join(path_dir, '*nii')) +
+                             glob.glob(os.path.join(path_dir, '*.mgz')) +
+                             glob.glob(os.path.join(path_dir, '*.npz')))
     assert len(list_images) > 0, 'no nii, nii.gz, mgz or npz could be found in %s' % path_dir
     return list_images
 
@@ -529,16 +528,12 @@ def get_resample_shape(patch_shape, factor, n_channels=None):
 
 
 def add_axis(x, axis=0):
-    """Add axis to a numpy array. The new axis can be added to the first dimension (axis=0), to the last dimension
-    (axis=-1), or to both (axis=-2)."""
-    if axis == 0:
-        return x[np.newaxis, ...]
-    elif axis == -1:
-        return x[..., np.newaxis]
-    elif axis == -2:
-        return x[np.newaxis, ..., np.newaxis]
-    else:
-        raise Exception('axis should be 0 (first), -1 (last), or -2 (first and last)')
+    """Add axis to a numpy array.
+    :param axis: index of the new axis to add. Can also be a list of indices to add several axes at the same time."""
+    axis = reformat_to_list(axis)
+    for ax in axis:
+        x = np.expand_dims(x, axis=ax)
+    return x
 
 
 def get_padding_margin(cropping, loss_cropping):
@@ -602,9 +597,9 @@ def build_training_generator(gen, batchsize):
     while True:
         inputs = next(gen)
         if batchsize > 1:
-            target = np.concatenate([add_axis(np.zeros(1))] * batchsize, 0)
+            target = np.concatenate([np.zeros((1, 1))] * batchsize, 0)
         else:
-            target = add_axis(np.zeros(1))
+            target = np.zeros((1, 1))
         yield inputs, target
 
 
@@ -627,9 +622,12 @@ def find_closest_number_divisible_by_m(n, m, smaller_ans=True):
         return n2
 
 
-def build_binary_structure(connectivity, n_dims):
+def build_binary_structure(connectivity, n_dims, shape=None):
     """Return a dilation/erosion element with provided connectivity"""
-    shape = [connectivity * 2 + 1] * n_dims
+    if shape is None:
+        shape = [connectivity * 2 + 1] * n_dims
+    else:
+        shape = reformat_to_list(shape, length=n_dims)
     dist = np.ones(shape)
     center = tuple([tuple([int(s / 2)]) for s in shape])
     dist[center] = 0
@@ -703,7 +701,8 @@ def draw_value_from_distribution(hyperparameter,
                                  centre=0.,
                                  default_range=10.0,
                                  positive_only=False,
-                                 return_as_tensor=False):
+                                 return_as_tensor=False,
+                                 batchsize=None):
     """Sample values from a uniform, or normal distribution of given hyper-parameters.
     These hyper-parameters are to the number of 2 in both uniform and normal cases.
     :param hyperparameter: values of the hyper-parameters. Can either be:
@@ -752,14 +751,17 @@ def draw_value_from_distribution(hyperparameter,
 
     # draw values as tensor
     if return_as_tensor:
+        shape = KL.Lambda(lambda x: tf.convert_to_tensor(hyperparameter.shape[1], 'int32'))([])
+        if batchsize is not None:
+            shape = KL.Lambda(lambda x: tf.concat([x[0], tf.expand_dims(x[1], axis=0)], axis=0))([batchsize, shape])
         if distribution == 'uniform':
-            parameter_value = KL.Lambda(lambda x: tf.random.uniform(shape=(hyperparameter.shape[1],),
+            parameter_value = KL.Lambda(lambda x: tf.random.uniform(shape=x,
                                                                     minval=hyperparameter[0, :],
-                                                                    maxval=hyperparameter[1, :]))([])
+                                                                    maxval=hyperparameter[1, :]))(shape)
         elif distribution == 'normal':
-            parameter_value = KL.Lambda(lambda x: tf.random.normal(shape=(hyperparameter.shape[1],),
+            parameter_value = KL.Lambda(lambda x: tf.random.normal(shape=x,
                                                                    mean=hyperparameter[0, :],
-                                                                   stddev=hyperparameter[1, :]))([])
+                                                                   stddev=hyperparameter[1, :]))(shape)
         else:
             raise ValueError("Distribution not supported, should be 'uniform' or 'normal'.")
 

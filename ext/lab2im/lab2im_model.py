@@ -61,10 +61,7 @@ def lab2im_model(labels_shape,
     labels_shape = utils.reformat_to_list(labels_shape)
     n_dims, _ = utils.get_dims(labels_shape)
     atlas_res = utils.reformat_to_n_channels_array(atlas_res, n_dims=n_dims)[0]
-    if target_res is None:
-        target_res = atlas_res
-    else:
-        target_res = utils.reformat_to_n_channels_array(target_res, n_dims)[0]
+    target_res = atlas_res if (target_res is None) else utils.reformat_to_n_channels_array(target_res, n_dims)[0]
 
     # get shapes
     crop_shape, output_shape = get_shapes(labels_shape, output_shape, atlas_res, target_res, output_div_by_n)
@@ -76,7 +73,7 @@ def lab2im_model(labels_shape,
     # define model inputs
     labels_input = KL.Input(shape=labels_shape+[1], name='labels_input')
     means_input = KL.Input(shape=list(new_generation_label_list.shape) + [n_channels], name='means_input')
-    std_devs_input = KL.Input(shape=list(new_generation_label_list.shape) + [n_channels], name='std_devs_input')
+    stds_input = KL.Input(shape=list(new_generation_label_list.shape) + [n_channels], name='stds_input')
 
     # convert labels to new_label_list
     labels = convert_labels(labels_input, lut)
@@ -90,7 +87,7 @@ def lab2im_model(labels_shape,
         labels = random_cropping(labels, crop_shape, n_dims)
 
     # build synthetic image
-    image = sample_gmm_conditioned_on_labels(labels, means_input, std_devs_input, n_generation_labels, n_channels)
+    image = sample_gmm_conditioned_on_labels(labels, means_input, stds_input, n_generation_labels, n_channels)
 
     # loop over channels
     if n_channels > 1:
@@ -136,7 +133,7 @@ def lab2im_model(labels_shape,
 
     # build model (dummy layer enables to keep the labels when plugging this model to other models)
     image = KL.Lambda(lambda x: x[0], name='image_out')([image, labels])
-    brain_model = keras.Model(inputs=[labels_input, means_input, std_devs_input], outputs=[image, labels])
+    brain_model = keras.Model(inputs=[labels_input, means_input, stds_input], outputs=[image, labels])
 
     return brain_model
 

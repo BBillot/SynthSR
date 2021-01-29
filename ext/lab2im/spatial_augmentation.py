@@ -60,7 +60,7 @@ def deform_tensor(tensor,
     """
 
     apply_affine_trans = (rotation_bounds is not False) | (translation_bounds is not False) | \
-                         (scaling_bounds is not False) | (shearing_bounds is not False)
+                         (scaling_bounds is not False) | (shearing_bounds is not False) | enable_90_rotations
     apply_elastic_trans = (nonlin_std is not False)
     assert (apply_affine_trans is not None) | apply_elastic_trans, 'affine_trans or elastic_trans should be provided'
 
@@ -72,7 +72,7 @@ def deform_tensor(tensor,
     trans_inputs = list()
 
     # add affine deformation to inputs list
-    if apply_affine_trans is not None:
+    if apply_affine_trans:
         affine_trans = sample_affine_transform(rotation_bounds=rotation_bounds,
                                                translation_bounds=translation_bounds,
                                                scaling_bounds=scaling_bounds,

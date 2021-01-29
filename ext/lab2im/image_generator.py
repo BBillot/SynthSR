@@ -95,11 +95,7 @@ class ImageGenerator:
         """
 
         # prepare data files
-        if ('.nii.gz' in labels_dir) | ('.nii' in labels_dir) | ('.mgz' in labels_dir) | ('.npz' in labels_dir):
-            self.labels_paths = [labels_dir]
-        else:
-            self.labels_paths = utils.list_images_in_folder(labels_dir)
-        assert len(self.labels_paths) > 0, "Could not find any training data"
+        self.labels_paths = utils.list_images_in_folder(labels_dir)
 
         # generation parameters
         self.labels_shape, self.aff, self.n_dims, _, self.header, self.atlas_res = \
@@ -200,16 +196,16 @@ class ImageGenerator:
 
                 # load label in identity space, and add them to inputs
                 y = utils.load_volume(self.labels_paths[idx], dtype='int', aff_ref=np.eye(4))
-                list_label_maps.append(utils.add_axis(y, axis=-2))
+                list_label_maps.append(utils.add_axis(y, axis=[0, -1]))
 
                 # add means and standard deviations to inputs
-                means = np.empty((n_labels, 0))
-                stds = np.empty((n_labels, 0))
+                means = np.empty((1, n_labels, 0))
+                stds = np.empty((1, n_labels, 0))
                 for channel in range(self.n_channels):
 
                     # retrieve channel specific stats if necessary
                     if isinstance(self.prior_means, np.ndarray):
-                        if self.prior_means.shape[0] > 2 & self.use_specific_stats_for_channel:
+                        if (self.prior_means.shape[0] > 2) & self.use_specific_stats_for_channel:
                             if self.prior_means.shape[0] / 2 != self.n_channels:
                                 raise ValueError("the number of blocks in prior_means does not match n_channels. This "
                                                  "message is printed because use_specific_stats_for_channel is True.")
@@ -219,7 +215,7 @@ class ImageGenerator:
                     else:
                         tmp_prior_means = self.prior_means
                     if isinstance(self.prior_stds, np.ndarray):
-                        if self.prior_stds.shape[0] > 2 & self.use_specific_stats_for_channel:
+                        if (self.prior_stds.shape[0] > 2) & self.use_specific_stats_for_channel:
                             if self.prior_stds.shape[0] / 2 != self.n_channels:
                                 raise ValueError("the number of blocks in prior_stds does not match n_channels. This "
                                                  "message is printed because use_specific_stats_for_channel is True.")
@@ -236,12 +232,12 @@ class ImageGenerator:
                     tmp_classes_stds = utils.draw_value_from_distribution(tmp_prior_stds, n_labels,
                                                                           self.prior_distributions, 15., 10.,
                                                                           positive_only=True)
-                    tmp_means = utils.add_axis(tmp_classes_means[self.generation_classes], -1)
-                    tmp_stds = utils.add_axis(tmp_classes_stds[self.generation_classes], -1)
-                    means = np.concatenate([means, tmp_means], axis=1)
-                    stds = np.concatenate([stds, tmp_stds], axis=1)
-                list_means.append(utils.add_axis(means))
-                list_stds.append(utils.add_axis(stds))
+                    tmp_means = utils.add_axis(tmp_classes_means[self.generation_classes], axis=[0, -1])
+                    tmp_stds = utils.add_axis(tmp_classes_stds[self.generation_classes], axis=[0, -1])
+                    means = np.concatenate([means, tmp_means], axis=-1)
+                    stds = np.concatenate([stds, tmp_stds], axis=-1)
+                list_means.append(means)
+                list_stds.append(stds)
 
             # build list of inputs of augmentation model
             list_inputs = [list_label_maps, list_means, list_stds]

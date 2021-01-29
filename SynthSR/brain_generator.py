@@ -159,18 +159,11 @@ class BrainGenerator:
         """
 
         # prepare data files
-        if ('.nii.gz' in labels_dir) | ('.nii' in labels_dir) | ('.mgz' in labels_dir) | ('.npz' in labels_dir):
-            self.labels_paths = [labels_dir]
-        else:
-            self.labels_paths = utils.list_images_in_folder(labels_dir)
-        assert len(self.labels_paths) > 0, "Could not find any training data"
+        self.labels_paths = utils.list_images_in_folder(labels_dir)
 
         self.images_paths = None
         if images_dir is not None:
-            if ('.nii.gz' in images_dir) | ('.nii' in images_dir) | ('.mgz' in images_dir) | ('.npz' in images_dir):
-                self.images_paths = [images_dir]
-            else:
-                self.images_paths = utils.list_images_in_folder(images_dir)
+            self.images_paths = utils.list_images_in_folder(images_dir)
             assert len(self.labels_paths) == len(self.images_paths), "Different number of images and segmentations"
 
         # generation parameters

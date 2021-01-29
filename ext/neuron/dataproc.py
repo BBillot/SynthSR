@@ -21,7 +21,7 @@ except:
     from tqdm import tqdm as tqdm
 
 # import local ndutils
-from ext.pynd import ndutils as nd
+import ext.pynd.ndutils as nd
 import re
 
 from imp import reload

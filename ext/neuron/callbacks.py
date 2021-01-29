@@ -233,9 +233,10 @@ class PlotTestSlices(keras.callbacks.Callback):
 
 
 class PredictMetrics(keras.callbacks.Callback):
-    """
+    '''
     Compute metrics, like Dice, and save to CSV/log
-    """
+
+    '''
 
     def __init__(self,
                  filepath,
@@ -391,7 +392,7 @@ class ModelCheckpoint(keras.callbacks.Callback):
 
         if mode not in ['auto', 'min', 'max']:
             warnings.warn('ModelCheckpoint mode %s is unknown, '
-                          'fallback to auto mode.' % mode,
+                          'fallback to auto mode.' % (mode),
                           RuntimeWarning)
             mode = 'auto'
 
@@ -439,7 +440,7 @@ class ModelCheckpoint(keras.callbacks.Callback):
                     current = logs.get(self.monitor)
                     if current is None:
                         warnings.warn('Can save best model only with %s available, '
-                                      'skipping.' % self.monitor, RuntimeWarning)
+                                      'skipping.' % (self.monitor), RuntimeWarning)
                     else:
                         if self.monitor_op(current, self.best):
                             if self.verbose > 0:
@@ -563,7 +564,7 @@ class ModelCheckpointParallel(keras.callbacks.Callback):
                     current = logs.get(self.monitor)
                     if current is None:
                         warnings.warn('Can save best model only with %s available, '
-                                      'skipping.' % self.monitor, RuntimeWarning)
+                                    'skipping.' % (self.monitor), RuntimeWarning)
                     else:
                         if self.monitor_op(current, self.best):
                             if self.verbose > 0:
@@ -589,6 +590,7 @@ class ModelCheckpointParallel(keras.callbacks.Callback):
                         self.model.layers[-(num_outputs+1)].save(filepath, overwrite=True)
 
 
+
 ##################################################################################################
 # helper functions
 ##################################################################################################
@@ -610,7 +612,7 @@ def _generate_predictions(model, data_generator, batch_size, nb_samples, vol_par
     else:
         for _ in range(nb_samples):  # assumes nr batches
             vol_pred, vol_true = nrn_utils.next_label(model, data_generator)
-            yield vol_true, vol_pred
+            yield (vol_true, vol_pred)
 
 
 def _flatten(l):

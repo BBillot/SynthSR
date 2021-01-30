@@ -85,12 +85,12 @@ for n in range(n_examples):
     start = time.time()
     input_channels, regression_target = brain_generator.generate_brain()
     end = time.time()
-    print('generation {0:d} took {1:.01f}s'.format(n+1, end - start))
+    print('generation {0:d} took {1:.01f}s'.format(n + 1, end - start))
 
     # save output image and label map
     utils.save_volume(np.squeeze(input_channels[..., 0]), brain_generator.aff, brain_generator.header,
-                      os.path.join(result_dir, 't1_input_%s.nii.gz' % n))
+                      os.path.join(result_dir, 't1_input_%s.nii.gz' % (n + 1)))
     utils.save_volume(np.squeeze(input_channels[..., 1]), brain_generator.aff, brain_generator.header,
-                      os.path.join(result_dir, 'reliability_map_input_%s.nii.gz' % n))
+                      os.path.join(result_dir, 'reliability_map_input_%s.nii.gz' % (n + 1)))
     utils.save_volume(np.squeeze(regression_target), brain_generator.aff, brain_generator.header,
-                      os.path.join(result_dir, 't1_target_%s.nii.gz' % n))
+                      os.path.join(result_dir, 't1_target_%s.nii.gz' % (n + 1)))

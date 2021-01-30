@@ -53,28 +53,28 @@ def labels_to_image_model(labels_shape,
     n_channels = len(input_channels)
     use_real_image = False if output_channel is not None else True
     idx_first_input_channel = np.argmax(input_channels)
-    n_input_channels = n_channels - np.sum(np.logical_not(input_channels))
 
     # if only 1 value is given for simulate_registration_error, then replicate for all channels
     simulate_registration_error = utils.reformat_to_list(simulate_registration_error, length=n_channels)
 
     # reformat resolutions
+    # insert dummy slice spacing/thickness for the indices in output_channel, if the corrupted versions of the same
+    # channels are not used as inputs. The dummy values won't be used, as synthetic regression targets are not
+    # downsampled before being resampled to target resolution. We only insert these dummy values for slice
+    # spacing/thickness since an index referring to all channels (input/output) will be used on these two variables.
     labels_shape = utils.reformat_to_list(labels_shape)
     n_dims, _ = utils.get_dims(labels_shape)
     atlas_res = utils.reformat_to_n_channels_array(atlas_res, n_dims, n_channels)
-    data_res = atlas_res if data_res is None else utils.reformat_to_n_channels_array(data_res, n_dims, n_input_channels)
-    thickness = data_res if (thickness is None) else utils.reformat_to_n_channels_array(thickness, n_dims, n_channels)
+    if output_channel is not None:
+        for idx in output_channel:
+            if not input_channels[idx]:
+                data_res = np.insert(data_res, idx, 1, axis=0)
+                thickness = np.insert(thickness, idx, 1, axis=0)
+    data_res = atlas_res if data_res is None else utils.reformat_to_n_channels_array(data_res, n_dims, n_channels)
+    thickness = data_res if thickness is None else utils.reformat_to_n_channels_array(thickness, n_dims, n_channels)
     downsample = utils.reformat_to_list(downsample, n_channels) if downsample else (np.min(thickness - data_res, 1) < 0)
     atlas_res = atlas_res[0]
     target_res = atlas_res if target_res is None else utils.reformat_to_n_channels_array(target_res, n_dims)[0]
-
-    # Eugenio removed this: output channels are normal synthetic channels...
-    # # insert dummy slice spacing/thickness for output_channel (they won't be used per se as synthetic regression targets
-    # # are not downsampled) because an index referring to all channels (input/output) will be used on these two variables
-    # if output_channel is not None:
-    #     if not input_channels[output_channel]:
-    #         data_res = np.insert(data_res, output_channel, 1, axis=0)
-    #         thickness = np.insert(thickness, output_channel, 1, axis=0)
 
     # get shapes
     crop_shape, output_shape, padding_margin = get_shapes(labels_shape, output_shape, atlas_res, target_res,

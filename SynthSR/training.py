@@ -130,9 +130,9 @@ def training(labels_dir,
     tensor for synthesising the deformation field.
     :param nonlin_shape_factor: (optional) Ratio between the size of the input label maps and the size of the sampled
     tensor for synthesising the elastic deformation field.
-    :param simulate_registration_error: (optional) whether to simulate registration errors between synthesised channels.
-    Can be a single value (same for all channels) or one value per channel (in the latter case, the first channel is
-    used as reference simulate_registration_error is False by definition, even if set to True!). Default is True.
+    :param simulate_registration_error: (optional) whether to simulate registration errors between *synthetic* channels.
+    Can be a single value (same for all channels) or a list with one value per *synthetic* channel. In the latter case,
+    the first values will automatically be reset to True as the first channel is used as reference. Default is True.
 
     # blurring/resampling parameters
     :param data_res: (optional) specific acquisition resolution to mimic, as opposed to random resolution sampled when
@@ -195,10 +195,6 @@ def training(labels_dir,
     else:
         n_output_channels = 1
 
-    if work_with_residual_channel is not None:
-        if type(work_with_residual_channel) != list:
-            work_with_residual_channel = [work_with_residual_channel]
-
     # various checks
     if (images_dir is None) & (output_channel is None):
         raise Exception('please provide a value for output_channel or image_dir')
@@ -210,10 +206,8 @@ def training(labels_dir,
 
     # check work_with_residual_channel
     if work_with_residual_channel is not None:
-        if len(work_with_residual_channel)==1:
-            if (images_dir is not None) and len(output_channel)!=1:
-                raise Exception('When using one residual channel, you need either to work with real images or use a single synthetic channel as output')
-        else:
+        work_with_residual_channel = utils.reformat_to_list(work_with_residual_channel)
+        if output_channel is not None:
             if len(work_with_residual_channel) != len(output_channel):
                 raise Exception('The number or residual channels and output channels must be the same')
 

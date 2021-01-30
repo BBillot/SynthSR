@@ -126,9 +126,10 @@ class BrainGenerator:
         elastic deformation off.
         :param nonlin_shape_factor: (optional) if nonlin_std is not False, factor between the shapes of the input label
         maps and the shape of the input non-linear tensor.
-        :param simulate_registration_error: (optional) whether to simulate registration errors between synthesised
-        channels. Can be a single value, or one per channel (in the latter case, the first channel is  used as reference
-        simulate_registration_error is False by definition, even if set to True!). Default is True.
+        :param simulate_registration_error: (optional) whether to simulate registration errors between *synthetic*
+        channels. Can be a single value (same for all channels) or a list with one value per *synthetic* channel. In the
+        latter case, the first values will automatically be reset to True as the first channel is used as reference.
+        Default is True.
 
         # blurring/resampling parameters
         :param data_res: (optional) specific acquisition resolution to mimic, as opposed to random resolution sampled
@@ -179,7 +180,7 @@ class BrainGenerator:
             self.n_neutral_labels = self.generation_labels.shape[0]
         self.batchsize = batchsize
         self.input_channels = np.array(utils.reformat_to_list(input_channels))
-        self.output_channel = output_channel
+        self.output_channel = utils.reformat_to_list(output_channel)
         self.n_channels = len(self.input_channels)
 
         # output parameters

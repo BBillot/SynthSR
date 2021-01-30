@@ -2,16 +2,15 @@
 import numpy as np
 import tensorflow as tf
 import keras.layers as KL
-import keras.backend as K
 from keras.models import Model
 
 # third-party imports
 from ext.lab2im import utils
-from ext.lab2im import sample_gmm as l2i_gmm
-from ext.lab2im import edit_tensors as l2i_et
-from ext.lab2im import spatial_augmentation as l2i_sa
-from ext.lab2im import intensity_augmentation as l2i_ia
+from ext.lab2im import layers
 from ext.neuron import layers as nrn_layers
+from ext.lab2im import edit_tensors as l2i_et
+from ext.lab2im.edit_volumes import get_ras_axes
+from ext.lab2im.layers import RandomSpatialDeformation, RandomFlip
 
 
 def labels_to_image_model(labels_shape,
@@ -56,7 +55,7 @@ def labels_to_image_model(labels_shape,
     idx_first_input_channel = np.argmax(input_channels)
     n_input_channels = n_channels - np.sum(np.logical_not(input_channels))
 
-    # if only 1 value is given for  simulate_registration_error, then replicate for all channels
+    # if only 1 value is given for simulate_registration_error, then replicate for all channels
     simulate_registration_error = utils.reformat_to_list(simulate_registration_error, length=n_channels)
 
     # reformat resolutions
@@ -64,9 +63,10 @@ def labels_to_image_model(labels_shape,
     n_dims, _ = utils.get_dims(labels_shape)
     atlas_res = utils.reformat_to_n_channels_array(atlas_res, n_dims, n_channels)
     data_res = atlas_res if data_res is None else utils.reformat_to_n_channels_array(data_res, n_dims, n_input_channels)
+    thickness = data_res if (thickness is None) else utils.reformat_to_n_channels_array(thickness, n_dims, n_channels)
+    downsample = utils.reformat_to_list(downsample, n_channels) if downsample else (np.min(thickness - data_res, 1) < 0)
     atlas_res = atlas_res[0]
     target_res = atlas_res if target_res is None else utils.reformat_to_n_channels_array(target_res, n_dims)[0]
-    thickness = utils.reformat_to_n_channels_array(thickness, n_dims, n_input_channels)
 
     # Eugenio removed this: output channels are normal synthetic channels...
     # # insert dummy slice spacing/thickness for output_channel (they won't be used per se as synthetic regression targets
@@ -81,13 +81,12 @@ def labels_to_image_model(labels_shape,
                                                           padding_margin, output_div_by_n)
 
     # create new_label_list and corresponding LUT to make sure that labels go from 0 to N-1
-    n_generation_labels = generation_labels.shape[0]
-    new_generation_label_list, lut = utils.rearrange_label_list(generation_labels)
+    new_generation_labels, lut = utils.rearrange_label_list(generation_labels)
 
     # define model inputs
     labels_input = KL.Input(shape=labels_shape+[1], name='labels_input')
-    means_input = KL.Input(shape=list(new_generation_label_list.shape) + [n_channels], name='means_input')
-    stds_input = KL.Input(shape=list(new_generation_label_list.shape) + [n_channels], name='stds_input')
+    means_input = KL.Input(shape=list(new_generation_labels.shape) + [n_channels], name='means_input')
+    stds_input = KL.Input(shape=list(new_generation_labels.shape) + [n_channels], name='stds_input')
     list_inputs = [labels_input, means_input, stds_input]
 
     # add real image to input list if using real regression target
@@ -107,151 +106,139 @@ def labels_to_image_model(labels_shape,
         labels = KL.Lambda(lambda x: tf.pad(x, tf.cast(tf.convert_to_tensor(pad), dtype='int32')), name='pad')(labels)
         labels_shape = labels.get_shape().as_list()[1:n_dims+1]
         if use_real_image:
-            real_image = KL.Lambda(lambda x: tf.pad(x, tf.cast(tf.convert_to_tensor(pad), dtype='int32')),
-                                   name='pad_real_image')(real_image)
+            real_image = KL.Lambda(lambda x: tf.pad(x, tf.cast(tf.convert_to_tensor(pad), dtype='int32')))(real_image)
 
     # deform labels
     if (scaling_bounds is not False) | (rotation_bounds is not False) | (shearing_bounds is not False) | \
        (translation_bounds is not False) | (nonlin_std is not False):
+        labels._keras_shape = tuple(labels.get_shape().as_list())
         if use_real_image:
-            labels, real_image = l2i_sa.deform_tensor(labels,
-                                                      scaling_bounds=scaling_bounds,
-                                                      rotation_bounds=rotation_bounds,
-                                                      shearing_bounds=shearing_bounds,
-                                                      translation_bounds=translation_bounds,
-                                                      nonlin_std=nonlin_std,
-                                                      nonlin_shape_factor=nonlin_shape_factor,
-                                                      inter_method='nearest',
-                                                      additional_tensor=real_image)
+            real_image._keras_shape = tuple(real_image.get_shape().as_list())
+            labels, real_image = RandomSpatialDeformation(scaling_bounds=scaling_bounds,
+                                                          rotation_bounds=rotation_bounds,
+                                                          shearing_bounds=shearing_bounds,
+                                                          translation_bounds=translation_bounds,
+                                                          nonlin_std=nonlin_std,
+                                                          nonlin_shape_factor=nonlin_shape_factor,
+                                                          inter_method=['nearest', 'linear'])([labels, real_image])
         else:
-            labels = l2i_sa.deform_tensor(labels,
-                                          scaling_bounds=scaling_bounds,
-                                          rotation_bounds=rotation_bounds,
-                                          shearing_bounds=shearing_bounds,
-                                          translation_bounds=translation_bounds,
-                                          nonlin_std=nonlin_std,
-                                          nonlin_shape_factor=nonlin_shape_factor,
-                                          inter_method='nearest')
-    labels = KL.Lambda(lambda x: tf.cast(x, dtype='int32'))(labels)
+            labels = RandomSpatialDeformation(scaling_bounds=scaling_bounds,
+                                              rotation_bounds=rotation_bounds,
+                                              shearing_bounds=shearing_bounds,
+                                              translation_bounds=translation_bounds,
+                                              nonlin_std=nonlin_std,
+                                              nonlin_shape_factor=nonlin_shape_factor,
+                                              inter_method='nearest')(labels)
 
     # cropping
     if crop_shape != labels_shape:
+        labels._keras_shape = tuple(labels.get_shape().as_list())
         if use_real_image:
-            labels, real_image = l2i_sa.random_cropping(labels, crop_shape, n_dims, real_image)
+            real_image._keras_shape = tuple(real_image.get_shape().as_list())
+            labels, real_image = layers.RandomCrop(crop_shape)([labels, real_image])
         else:
-            labels = l2i_sa.random_cropping(labels, crop_shape, n_dims)
+            labels = layers.RandomCrop(crop_shape)(labels)
 
     # flipping
     if flipping:
         assert aff is not None, 'aff should not be None if flipping is True'
+        labels._keras_shape = tuple(labels.get_shape().as_list())
         if use_real_image:
-            labels, real_image = l2i_sa.label_map_random_flipping(labels, new_generation_label_list, n_neutral_labels,
-                                                                  aff, n_dims, True, real_image)
+            real_image._keras_shape = tuple(real_image.get_shape().as_list())
+            labels, real_image = RandomFlip(get_ras_axes(aff, n_dims)[0], True, new_generation_labels,
+                                            n_neutral_labels)([labels, real_image])
         else:
-            labels = l2i_sa.label_map_random_flipping(labels, new_generation_label_list, n_neutral_labels, aff, n_dims,
-                                                      flip_rl_only=True)
+            labels = RandomFlip(get_ras_axes(aff, n_dims)[0], True, new_generation_labels, n_neutral_labels)(labels)
 
     # build synthetic image
-    image = l2i_gmm.sample_gmm_conditioned_on_labels(labels, means_input, stds_input, n_generation_labels, n_channels)
-
-    # split synthetic channels
-    if n_channels > 1:
-        split = KL.Lambda(lambda x: tf.split(x, [1] * n_channels, axis=-1))(image)
-    else:
-        split = [image]
-    mask = KL.Lambda(lambda x: tf.where(tf.greater(x, 0), tf.ones_like(x, dtype='float32'),
-                                        tf.zeros_like(x, dtype='float32')))(labels)
+    labels._keras_shape = tuple(labels.get_shape().as_list())
+    image = layers.SampleConditionalGMM()([labels, means_input, stds_input])
 
     # loop over synthetic channels
-    processed_channels = list()
-    regression_target = list()
+    channels = list()
+    targets = list()
+    split = KL.Lambda(lambda x: tf.split(x, [1] * n_channels, axis=-1))(image) if (n_channels > 1) else [image]
     for i, channel in enumerate(split):
 
         # apply bias field
-        if (bias_field_std is not False) & input_channels[i]:
-            channel = l2i_ia.bias_field_augmentation(channel, bias_field_std, bias_shape_factor)
+        if (bias_field_std > 0) & input_channels[i]:
+            channel._keras_shape = tuple(channel.get_shape().as_list())
+            channel = layers.BiasFieldCorruption(bias_field_std, bias_shape_factor, False)(channel)
 
         # intensity augmentation
-        channel = KL.Lambda(lambda x: K.clip(x, 0, 300))(channel)
-        channel = l2i_ia.min_max_normalisation(channel)
-        channel = l2i_ia.gamma_augmentation(channel, std=0.5)
-        kernels_list_cosmetic = l2i_et.get_gaussian_1d_kernels([.5] * 3)
-        channel = l2i_et.blur_channel(channel, mask, kernels_list_cosmetic, n_dims, True)
+        channel._keras_shape = tuple(channel.get_shape().as_list())
+        channel = layers.IntensityAugmentation(0, clip=300, normalise=True, gamma_std=.5)(channel)
+        channel._keras_shape = tuple(channel.get_shape().as_list())
+        channel = layers.GaussianBlur(sigma=.5)(channel)
 
-        # synthetic regression target
-        if any(c == i for c in output_channel):
-            # resample regression target at target resolution if needed
-            if crop_shape != output_shape:
-                sigma = utils.get_std_blurring_mask_for_downsampling(target_res, atlas_res)
-                kernels_list = l2i_et.get_gaussian_1d_kernels(sigma)
-                channel = l2i_et.blur_tensor(channel, kernels_list, n_dims=n_dims)
-                channel = l2i_et.resample_tensor(channel, output_shape)
-            regression_target.append(channel)
+        # resample regression target at target resolution if needed
+        if not use_real_image:
+            if any(c == i for c in output_channel):
+                if crop_shape != output_shape:
+                    sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, target_res)
+                    channel._keras_shape = tuple(channel.get_shape().as_list())
+                    channel = layers.GaussianBlur(sigma)(channel)
+                    channel = l2i_et.resample_tensor(channel, output_shape)
+                targets.append(channel)
 
         # synthetic input channels
         if input_channels[i]:
 
             # simulate registration error relatively to the first channel (so this does not apply to the first channel)
             if simulate_registration_error[i] & (i != idx_first_input_channel):
-                T, Tinv = l2i_sa.sample_affine_transform(5, 5, False, False, n_dims=n_dims, return_inv=True)
                 channel._keras_shape = tuple(channel.get_shape().as_list())
+                batchsize = KL.Lambda(lambda x: tf.split(tf.shape(x), [1, -1])[0])(channel)
+                T = KL.Lambda(lambda x: utils.sample_affine_transform(x, n_dims, rotation_bounds=5,
+                                                                      translation_bounds=5))(batchsize)
+                Tinv = KL.Lambda(lambda x: tf.linalg.inv(x))(T)
                 channel = nrn_layers.SpatialTransformer(interp_method='linear')([channel, T])
             else:
-                Tinv = None
+                Tinv = batchsize = None
 
             # blur channel
-            sigma = utils.get_std_blurring_mask_for_downsampling(data_res[i], atlas_res, thickness[i], mult_coef=0.42)
-            kernels_list = l2i_et.get_gaussian_1d_kernels(sigma, blurring_range=blur_range)
-            channel = l2i_et.blur_channel(channel, mask, kernels_list, n_dims)
+            sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, data_res[i], 0.42, thickness[i])
+            channel._keras_shape = tuple(channel.get_shape().as_list())
+            channel = layers.GaussianBlur(sigma, blur_range)(channel)
 
             # resample channel
-            if downsample:  # downsample if requested
-                channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res,
-                                                          build_reliability_map=True)
-            elif thickness[i] is not None:  # automatically downsample if data_res > thickness
-                diff = [thickness[i][dim_idx] - data_res[i][dim_idx] for dim_idx in range(n_dims)]
-                if min(diff) < 0:
-                    channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res,
-                                                              build_reliability_map=True)
-                else:
-                    channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear',
-                                                              build_reliability_map=True)
+            if downsample[i]:
+                channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res, True)
             else:
-                channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', build_reliability_map=True)
+                channel, rel_map = l2i_et.resample_tensor(channel, output_shape, build_reliability_map=True)
 
             # align the channels back to the first one with a small error
             if simulate_registration_error[i] & (i != idx_first_input_channel):
-                Terr = l2i_sa.sample_affine_transform(.5, .5, False, False, n_dims=n_dims, return_inv=False)
-                Tinv_err = KL.Lambda(lambda x: tf.matmul(x[0], x[1]))([Terr, Tinv])
                 channel._keras_shape = tuple(channel.get_shape().as_list())
+                Terr = KL.Lambda(lambda x: utils.sample_affine_transform(x, n_dims, rotation_bounds=.5,
+                                                                         translation_bounds=.5))(batchsize)
+                Tinv_err = KL.Lambda(lambda x: tf.matmul(x[0], x[1]))([Terr, Tinv])
                 channel = nrn_layers.SpatialTransformer(interp_method='linear')([channel, Tinv_err])
-                rel_map = KL.Lambda(lambda x: tf.cast(x, dtype='float32'))(rel_map)
                 rel_map._keras_shape = tuple(rel_map.get_shape().as_list())
                 rel_map = nrn_layers.SpatialTransformer(interp_method='linear')([rel_map, Tinv_err])
 
-            processed_channels.append(channel)
+            channels.append(channel)
             if build_reliability_maps:
-                processed_channels.append(rel_map)
+                channels.append(rel_map)
 
     # concatenate channels back
-    if len(processed_channels) > 1:
-        image = KL.Lambda(lambda x: tf.concat(x, axis=-1))(processed_channels)
-    else:
-        image = processed_channels[0]
+    image = KL.Lambda(lambda x: tf.concat(x, -1))(channels) if len(channels) > 1 else channels[0]
 
     # if no synthetic image is used as regression target, we need to assign the real image to the target!
     if use_real_image:
-        real_image = l2i_ia.min_max_normalisation(real_image)
-        final_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(real_image)
+        real_image._keras_shape = tuple(real_image.get_shape().as_list())
+        target = layers.IntensityAugmentation(normalise=True, noise_std=0, gamma_std=0)(real_image)
+        if crop_shape != output_shape:
+            sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, target_res)
+            target._keras_shape = tuple(target.get_shape().as_list())
+            target = layers.GaussianBlur(sigma)(target)
+            target = l2i_et.resample_tensor(target, output_shape)
     else:
-        if len(regression_target) > 1:
-            final_target = KL.Lambda(lambda x: tf.concat(x, axis=-1), name='regression_target')(regression_target)
-        else:
-            final_target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(regression_target[0])
+        target = KL.Lambda(lambda x: tf.concat(x, axis=-1))(targets) if len(targets) > 1 else targets[0]
+    target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(target)
 
     # build model (dummy layer enables to keep the target when plugging this model to other models)
-    image = KL.Lambda(lambda x: x[0], name='image_out')([image, final_target])
-    brain_model = Model(inputs=list_inputs, outputs=[image, final_target])
+    image = KL.Lambda(lambda x: x[0], name='image_out')([image, target])
+    brain_model = Model(inputs=list_inputs, outputs=[image, target])
 
     return brain_model
 

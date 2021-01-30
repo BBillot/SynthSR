@@ -1,17 +1,13 @@
 # python imports
-import keras
 import numpy as np
 import tensorflow as tf
 import keras.layers as KL
-import keras.backend as K
+from keras.models import Model
 
 # project imports
 from . import utils
-from .sample_gmm import sample_gmm_conditioned_on_labels
-from .spatial_augmentation import deform_tensor, random_cropping
-from .edit_tensors import convert_labels, reset_label_values_to_zero
-from .edit_tensors import blur_channel, get_gaussian_1d_kernels, resample_tensor
-from .intensity_augmentation import gamma_augmentation, bias_field_augmentation, min_max_normalisation
+from . import layers
+from .edit_tensors import convert_labels, resample_tensor, blurring_sigma_for_downsampling
 
 
 def lab2im_model(labels_shape,
@@ -67,7 +63,6 @@ def lab2im_model(labels_shape,
     crop_shape, output_shape = get_shapes(labels_shape, output_shape, atlas_res, target_res, output_div_by_n)
 
     # create new_label_list and corresponding LUT to make sure that labels go from 0 to N-1
-    n_generation_labels = generation_labels.shape[0]
     new_generation_label_list, lut = utils.rearrange_label_list(generation_labels)
 
     # define model inputs
@@ -79,61 +74,47 @@ def lab2im_model(labels_shape,
     labels = convert_labels(labels_input, lut)
 
     # deform labels
-    labels = deform_tensor(labels, inter_method='nearest')
+    labels._keras_shape = tuple(labels.get_shape().as_list())
+    labels = layers.RandomSpatialDeformation(inter_method='nearest')(labels)
     labels = KL.Lambda(lambda x: tf.cast(x, dtype='int32'))(labels)
 
     # cropping
     if crop_shape != labels_shape:
-        labels = random_cropping(labels, crop_shape, n_dims)
+        labels._keras_shape = tuple(labels.get_shape().as_list())
+        labels = layers.RandomCrop(crop_shape)(labels)
 
     # build synthetic image
-    image = sample_gmm_conditioned_on_labels(labels, means_input, stds_input, n_generation_labels, n_channels)
+    labels._keras_shape = tuple(labels.get_shape().as_list())
+    image = layers.SampleConditionalGMM()([labels, means_input, stds_input])
 
-    # loop over channels
-    if n_channels > 1:
-        split = KL.Lambda(lambda x: tf.split(x, [1] * n_channels, axis=-1))(image)
-    else:
-        split = [image]
-    mask = KL.Lambda(lambda x: tf.where(tf.greater(x, 0), tf.ones_like(x, dtype='float32'),
-                                        tf.zeros_like(x, dtype='float32')))(labels)
-    processed_channels = list()
-    for i, channel in enumerate(split):
+    # blur image
+    sigma = blurring_sigma_for_downsampling(atlas_res, target_res)
+    image._keras_shape = tuple(image.get_shape().as_list())
+    image = layers.GaussianBlur(sigma=sigma, random_blur_range=blur_range)(image)
 
-        sigma = utils.get_std_blurring_mask_for_downsampling(target_res, atlas_res)
-        kernels_list = get_gaussian_1d_kernels(sigma, blurring_range=blur_range)
-        channel = blur_channel(channel, mask, kernels_list, n_dims)
-
-        # resample channel
-        if crop_shape != output_shape:
-            channel = resample_tensor(channel, output_shape, 'linear')
-
-        # apply bias field
-        channel = bias_field_augmentation(channel, bias_shape_factor=.025, bias_field_std=.3)
-
-        # intensity augmentation
-        channel = KL.Lambda(lambda x: K.clip(x, 0, 300))(channel)
-        channel = min_max_normalisation(channel)
-        processed_channels.append(gamma_augmentation(channel, std=0.2))
-
-    # concatenate all channels back
-    if n_channels > 1:
-        image = KL.concatenate(processed_channels)
-    else:
-        image = processed_channels[0]
-
-    # resample labels at target resolution
+    # resample to target res
     if crop_shape != output_shape:
-        labels = KL.Lambda(lambda x: tf.cast(x, dtype='float32'))(labels)
+        image = resample_tensor(image, output_shape, interp_method='linear')
         labels = resample_tensor(labels, output_shape, interp_method='nearest')
+
+    # apply bias field
+    image._keras_shape = tuple(image.get_shape().as_list())
+    image = layers.BiasFieldCorruption(.3, .025, same_bias_for_all_channels=False)(image)
+
+    # intensity augmentation
+    image._keras_shape = tuple(image.get_shape().as_list())
+    image = layers.IntensityAugmentation(noise_std=0, clip=None, normalise=True, gamma_std=.2,
+                                         separate_channels=True)(image)
+
     # convert labels back to original values and reset unwanted labels to zero
     labels = convert_labels(labels, generation_labels)
-    labels_to_reset = [lab for lab in generation_labels if lab not in output_labels]
-    labels = reset_label_values_to_zero(labels, labels_to_reset)
-    labels = KL.Lambda(lambda x: tf.cast(x, dtype='int32'), name='labels_out')(labels)
+    labels._keras_shape = tuple(labels.get_shape().as_list())
+    labels = layers.ResetValuesToZero([lab for lab in generation_labels if lab not in output_labels])(labels)
 
     # build model (dummy layer enables to keep the labels when plugging this model to other models)
+    labels = KL.Lambda(lambda x: tf.cast(x, dtype='int32'), name='labels_out')(labels)
     image = KL.Lambda(lambda x: x[0], name='image_out')([image, labels])
-    brain_model = keras.Model(inputs=[labels_input, means_input, stds_input], outputs=[image, labels])
+    brain_model = Model(inputs=[labels_input, means_input, stds_input], outputs=[image, labels])
 
     return brain_model
 

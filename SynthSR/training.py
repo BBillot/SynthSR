@@ -1,15 +1,20 @@
 # python imports
 import os
+import keras
+import tensorflow as tf
+from keras import models
 import keras.callbacks as KC
-from keras.models import Model
 from keras.optimizers import Adam
+from inspect import getmembers, isclass
 
 # project imports
-from .metrics_model import metrics_model, IdentityLoss
+from . import metrics_model as metrics
 from .brain_generator import BrainGenerator
 
 # third-party imports
 from ext.lab2im import utils
+from ext.lab2im import layers as l2i_layers
+from ext.neuron import layers as nrn_layers
 from ext.neuron import models as nrn_models
 
 
@@ -56,8 +61,7 @@ def training(labels_dir,
              regression_metric='l1',
              work_with_residual_channel=None,
              loss_cropping=None,
-             load_model_file=None,
-             initial_epoch=0):
+             checkpoint=None):
     """
     This function trains a Unet to do slice imputation (and possibly synthesis) of MRI images with thick slices,
     using synthetic scans and possibly real scans.
@@ -182,8 +186,7 @@ def training(labels_dir,
     or have length equal to 1 if real images are used)
     :param loss_cropping: (option)  to crop the posteriors when evaluating the loss function (specify the output size
     Can be an int, or the path to a 1d numpy array.
-    :param load_model_file: (optional) path of an already saved model to load before starting the training.
-    :param initial_epoch: (optional) initial epoch for training. Useful for resuming training.
+    :param checkpoint: (optional) path of an already saved model to load before starting the training.
     """
 
     n_channels = len(utils.reformat_to_list(input_channels))
@@ -224,10 +227,6 @@ def training(labels_dir,
 
     # prepare model folder
     utils.mkdir(model_dir)
-
-    # prepare log folder
-    log_dir = os.path.join(model_dir, 'logs')
-    utils.mkdir(log_dir)
 
     # compute padding_margin if needed
     if loss_cropping == 0:
@@ -285,20 +284,17 @@ def training(labels_dir,
                                  input_model=labels_to_image_model)
 
     # input generator
-    train_example_gen = brain_generator.model_inputs_generator
-    training_generator = utils.build_training_generator(train_example_gen, batchsize)
+    input_generator = utils.build_training_generator(brain_generator.model_inputs_generator, batchsize)
 
-    # model
-    model = Model(unet_model.inputs, [unet_model.get_layer('unet_prediction').output])
-    model = metrics_model(input_model=model,
-                          loss_cropping=loss_cropping,
-                          metrics=regression_metric,
-                          work_with_residual_channel=work_with_residual_channel)
-    if load_model_file is not None:
-        print('loading', load_model_file)
-        model.load_weights(load_model_file, by_name=True)
-    train_model(model, training_generator, learning_rate, lr_decay, epochs, steps_per_epoch, model_dir, log_dir,
-                initial_epoch)
+    # append metric model
+    model = models.Model(unet_model.inputs, [unet_model.get_layer('unet_prediction').output])
+    model = metrics.metrics_model(input_model=model,
+                                  loss_cropping=loss_cropping,
+                                  metrics=regression_metric,
+                                  work_with_residual_channel=work_with_residual_channel)
+
+    # train
+    train_model(model, input_generator, learning_rate, lr_decay, epochs, steps_per_epoch, model_dir, checkpoint)
 
 
 def train_model(model,
@@ -308,22 +304,35 @@ def train_model(model,
                 n_epochs,
                 n_steps,
                 model_dir,
-                log_dir,
-                initial_epoch=0):
+                path_checkpoint=None):
 
-    # model callbacks
+    # prepare log folder
+    log_dir = os.path.join(model_dir, 'logs')
+    utils.mkdir(log_dir)
+
+    # model saving callback
     save_file_name = os.path.join(model_dir, '{epoch:03d}.h5')
-    callbacks = [KC.ModelCheckpoint(save_file_name, save_weights_only=True, verbose=1),
+    callbacks = [KC.ModelCheckpoint(save_file_name, verbose=1),
                  KC.TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=True, write_images=False)]
 
-    # compile
-    model.compile(optimizer=Adam(lr=learning_rate, decay=lr_decay),
-                  loss=IdentityLoss().loss,
-                  loss_weights=[1.0])
+    # load checkpoint if provided (no need to recompile as momentum is comprised in checkpoints)
+    if path_checkpoint is not None:
+        init_epoch = int(path_checkpoint[-6:-3])
+        custom_l2i = {key: value for (key, value) in getmembers(l2i_layers, isclass) if key != 'Layer'}
+        custom_nrn = {key: value for (key, value) in getmembers(nrn_layers, isclass) if key != 'Layer'}
+        custom_objects = {**custom_l2i, **custom_nrn, 'tf': tf, 'keras': keras, 'loss': metrics.IdentityLoss().loss}
+        model = models.load_model(path_checkpoint, custom_objects=custom_objects)
+
+    # compile model from scratch otherwise
+    else:
+        init_epoch = 0
+        model.compile(optimizer=Adam(lr=learning_rate, decay=lr_decay),
+                      loss=metrics.IdentityLoss().loss,
+                      loss_weights=[1.0])
 
     # fit
     model.fit_generator(generator,
                         epochs=n_epochs,
                         steps_per_epoch=n_steps,
                         callbacks=callbacks,
-                        initial_epoch=initial_epoch)
+                        initial_epoch=init_epoch)

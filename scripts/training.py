@@ -62,8 +62,7 @@ parser.add_argument("--steps_per_epoch", type=int, dest="steps_per_epoch", defau
 parser.add_argument("--metric", type=str, dest="regression_metric", default='l1')
 parser.add_argument("--residual_channel", type=int, dest="work_with_residual_channel", default=None)
 parser.add_argument("--loss_cropping", type=int, dest="loss_cropping")
-parser.add_argument("--load_model_file", type=str, dest="load_model_file", default=None)
-parser.add_argument("--initial_epoch", type=int, dest="initial_epoch", default=0)
+parser.add_argument("--checkpoint", type=str, dest="checkpoint", default=None)
 
 args = parser.parse_args()
 training(**vars(args))

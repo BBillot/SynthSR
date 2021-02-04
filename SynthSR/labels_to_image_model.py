@@ -110,7 +110,7 @@ def labels_to_image_model(labels_shape,
 
     # deform labels
     if (scaling_bounds is not False) | (rotation_bounds is not False) | (shearing_bounds is not False) | \
-       (translation_bounds is not False) | (nonlin_std is not False):
+       (translation_bounds is not False) | (nonlin_std > 0):
         labels._keras_shape = tuple(labels.get_shape().as_list())
         if use_real_image:
             real_image._keras_shape = tuple(real_image.get_shape().as_list())

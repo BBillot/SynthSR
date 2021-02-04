@@ -122,7 +122,7 @@ class BrainGenerator:
         :param translation_bounds: (optional) same as scaling bounds. Default is translation_bounds = False, but we
         encourage using it when cropping is deactivated (i.e. when output_shape=None in BrainGenerator).
         :param nonlin_std: (optional) Maximum value for the standard deviation of the normal distribution from which we
-        sample the first tensor for synthesising the deformation field. Set to False if you wish to completely turn the
+        sample the first tensor for synthesising the deformation field. Set to 0 if you wish to completely turn the
         elastic deformation off.
         :param nonlin_shape_factor: (optional) if nonlin_std is not False, factor between the shapes of the input label
         maps and the shape of the input non-linear tensor.
@@ -150,11 +150,11 @@ class BrainGenerator:
         in the center of a slice, or rather in interpolated land
 
         # bias field parameters
-        :param bias_field_std: (optional) If not False, this triggers the corruption of synthesised images with a bias
-        field. This will only affect the input channels (i.e. not the synthetic regression target). The bias field is
-        obtained by sampling a first small tensor from a normal distribution, resizing it to full size, and rescaling it
-        to positive values by taking the voxel-wise exponential. bias_field_std designates the std dev of the normal
-        distribution from which we sample the first tensor. Set to False to completely deactivate biad field corruption.
+        :param bias_field_std: (optional) If strictly positive, this triggers the corruption of synthesised images with
+        a bias field. It will only affect the input channels (i.e. not the synthetic regression target). The bias field
+        is obtained by sampling a first small tensor from a normal distribution, resizing it to full size, and rescaling
+        it to positive values by taking the voxel-wise exponential. bias_field_std designates the std dev of the normal
+        distribution from which we sample the first tensor. Set to 0 to completely deactivate biad field corruption.
         :param bias_shape_factor: (optional) If bias_field_std is not False, this designates the ratio between the size
         of the input label maps and the size of the first sampled tensor for synthesising the bias field.
         """

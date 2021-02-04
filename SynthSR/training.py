@@ -127,7 +127,7 @@ def training(labels_dir,
     :param translation_bounds: (optional) same as scaling bounds. Default is translation_bounds = False, but we
     encourage using it when cropping is deactivated (i.e. when output_shape=None).
     :param nonlin_std: (optional) Standard deviation of the normal distribution from which we sample the first
-    tensor for synthesising the deformation field.
+    tensor for synthesising the deformation field. Set to 0 to completely turn the elastic deformation off.
     :param nonlin_shape_factor: (optional) Ratio between the size of the input label maps and the size of the sampled
     tensor for synthesising the elastic deformation field.
     :param simulate_registration_error: (optional) whether to simulate registration errors between *synthetic* channels.
@@ -152,11 +152,11 @@ def training(labels_dir,
     "measured" and which are interpolated
 
     # bias field parameters
-    :param bias_field_std: (optional) If not False, this triggers the corruption of synthesised images with a bias
-    field. This will only affect the input channels (i.e. not the synthetic regression target). The bias field is
+    :param bias_field_std: (optional) If strictly positive, this triggers the corruption of synthesised images with a
+    bias field. This will only affect the input channels (i.e. not the synthetic regression target). The bias field is
     obtained by sampling a first small tensor from a normal distribution, resizing it to full size, and rescaling it to
     positive values by taking the voxel-wise exponential. bias_field_std designates the std dev of the normal
-    distribution from which we sample the first tensor. Set to False to completely deactivate biad field corruption.
+    distribution from which we sample the first tensor. Set to 0 to completely deactivate biad field corruption.
     :param bias_shape_factor: (optional) If bias_field_std is not False, this designates the ratio between the size of
     the input label maps and the size of the first sampled tensor for synthesising the bias field.
 

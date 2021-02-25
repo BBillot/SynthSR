@@ -92,7 +92,7 @@ def load_volume(path_volume, im_only=True, squeeze=True, dtype=None, aff_ref=Non
     if aff_ref is not None:
         from . import edit_volumes  # the import is done here to avoid import loops
         n_dims, _ = get_dims(list(volume.shape), max_channels=10)
-        volume, aff = edit_volumes.align_volume_to_ref(volume, aff, aff_ref=aff_ref, return_aff=True, n_dims=n_dims)
+        volume, aff = edit_volumes.align_volume_to_ref(volume, aff, aff_ref=aff_ref, return_aff=True)
 
     if im_only:
         return volume
@@ -165,7 +165,7 @@ def get_volume_info(path_volume, return_volume=False, aff_ref=None):
         from . import edit_volumes  # the import is done here to avoid import loops
         ras_axes = edit_volumes.get_ras_axes(aff, n_dims=n_dims)
         ras_axes_ref = edit_volumes.get_ras_axes(aff_ref, n_dims=n_dims)
-        im = edit_volumes.align_volume_to_ref(im, aff, aff_ref=aff_ref, n_dims=n_dims)
+        im = edit_volumes.align_volume_to_ref(im, aff, aff_ref=aff_ref)
         im_shape = np.array(im_shape)
         data_res = np.array(data_res)
         im_shape[ras_axes_ref] = im_shape[ras_axes]
@@ -462,13 +462,6 @@ def strip_extension(path):
 
 def strip_suffix(path):
     """Strip classical image suffix from a filename."""
-    path = path.replace('_seg', '')
-    path = path.replace('.seg', '')
-    path = path.replace('seg', '')
-    path = path.replace('_seg_1', '')
-    path = path.replace('_seg_2', '')
-    path = path.replace('seg_1_', '')
-    path = path.replace('seg_2_', '')
     path = path.replace('_aseg', '')
     path = path.replace('aseg', '')
     path = path.replace('.aseg', '')
@@ -486,6 +479,13 @@ def strip_suffix(path):
     path = path.replace('GSP_FS_4p5', 'GSP')
     path = path.replace('.nii_crispSegmentation', '')
     path = path.replace('_crispSegmentation', '')
+    path = path.replace('_seg', '')
+    path = path.replace('.seg', '')
+    path = path.replace('seg', '')
+    path = path.replace('_seg_1', '')
+    path = path.replace('_seg_2', '')
+    path = path.replace('seg_1_', '')
+    path = path.replace('seg_2_', '')
     return path
 
 
@@ -499,6 +499,10 @@ def mkdir(path_dir):
             list_dir_to_create.append(os.path.dirname(list_dir_to_create[-1]))
         for dir_to_create in reversed(list_dir_to_create):
             os.mkdir(dir_to_create)
+
+
+def mkcmd(*args):
+    return ' '.join([str(arg) for arg in args])
 
 
 # ---------------------------------------------- shape-related functions -----------------------------------------------
@@ -788,28 +792,53 @@ class LoopInfo:
     processing i/total    remaining time: hh:mm:ss
     """
 
-    def __init__(self, n_iterations, spacing=5, text='processing', print_time=False):
+    def __init__(self, n_iterations, spacing=10, text='processing', print_time=False):
         """
         :param n_iterations: total number of iterations of the for loop.
         :param spacing: frequency at which the update info will be printed on screen.
         :param text: text to print. Default is processing.
         :param print_time: whether to print the estimated remaining time. Default is False.
         """
-        self.start = time.time()
+
+        # loop parameters
         self.n_iterations = n_iterations
         self.spacing = spacing
+
+        # text parameters
         self.text = text
         self.print_time = print_time
+        self.print_previous_time = False
         self.align = len(str(self.n_iterations)) * 2 + 1 + 3
 
+        # timing parameters
+        self.iteration_durations = np.zeros((n_iterations,))
+        self.start = time.time()
+        self.previous = time.time()
+
     def update(self, idx):
+
+        # time iteration
+        now = time.time()
+        self.iteration_durations[idx] = now - self.previous
+        self.previous = now
+
+        # print text
         if idx == 0:
             print(self.text + ' 1/{}'.format(self.n_iterations))
         elif idx % self.spacing == self.spacing - 1:
             iteration = str(idx + 1) + '/' + str(self.n_iterations)
             if self.print_time:
-                eta = str(timedelta(seconds=int((time.time() - self.start) / idx * (self.n_iterations - idx))))
-                print(self.text + ' {:<{x}} remaining time: {}'.format(iteration, eta, x=self.align))
+                # estimate remaining time
+                max_duration = np.max(self.iteration_durations)
+                average_duration = np.mean(self.iteration_durations[self.iteration_durations > .01 * max_duration])
+                remaining_time = int(average_duration * (self.n_iterations - idx))
+                # print total remaining time only if it is greater than 1s or if it was previously printed
+                if (remaining_time > 1) | self.print_previous_time:
+                    eta = str(timedelta(seconds=remaining_time))
+                    print(self.text + ' {:<{x}} remaining time: {}'.format(iteration, eta, x=self.align))
+                    self.print_previous_time = True
+                else:
+                    print(self.text + ' {}'.format(iteration))
             else:
                 print(self.text + ' {}'.format(iteration))
 

@@ -167,7 +167,7 @@ def labels_to_image_model(labels_shape,
 
         # intensity augmentation
         channel._keras_shape = tuple(channel.get_shape().as_list())
-        channel = layers.IntensityAugmentation(0, clip=300, normalise=True, gamma_std=.5)(channel)
+        channel = layers.IntensityAugmentation(clip=300, normalise=True, gamma_std=.5)(channel)
         channel._keras_shape = tuple(channel.get_shape().as_list())
         channel = layers.GaussianBlur(sigma=.5)(channel)
 
@@ -226,7 +226,7 @@ def labels_to_image_model(labels_shape,
     # if no synthetic image is used as regression target, we need to assign the real image to the target!
     if use_real_image:
         real_image._keras_shape = tuple(real_image.get_shape().as_list())
-        target = layers.IntensityAugmentation(normalise=True, noise_std=0, gamma_std=0)(real_image)
+        target = layers.IntensityAugmentation(normalise=True)(real_image)
         if crop_shape != output_shape:
             sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, target_res)
             target._keras_shape = tuple(target.get_shape().as_list())

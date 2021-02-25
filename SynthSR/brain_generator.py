@@ -288,10 +288,8 @@ class BrainGenerator:
         list_images = list()
         list_targets = list()
         for i in range(self.batchsize):
-            list_images.append(edit_volumes.align_volume_to_ref(image[i], np.eye(4),
-                                                                aff_ref=self.aff, n_dims=self.n_dims))
-            list_targets.append(edit_volumes.align_volume_to_ref(target[i], np.eye(4),
-                                                                 aff_ref=self.aff, n_dims=self.n_dims))
+            list_images.append(edit_volumes.align_volume_to_ref(image[i], np.eye(4), aff_ref=self.aff))
+            list_targets.append(edit_volumes.align_volume_to_ref(target[i], np.eye(4), aff_ref=self.aff))
         image = np.stack(list_images, axis=0)
         target = np.stack(list_targets, axis=0)
         return image, target

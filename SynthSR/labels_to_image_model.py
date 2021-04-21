@@ -32,6 +32,7 @@ def labels_to_image_model(labels_shape,
                           nonlin_std=3.,
                           nonlin_shape_factor=.0625,
                           simulate_registration_error=True,
+                          randomise_res=False,
                           data_res=None,
                           thickness=None,
                           downsample=False,
@@ -75,6 +76,8 @@ def labels_to_image_model(labels_shape,
     downsample = utils.reformat_to_list(downsample, n_channels) if downsample else (np.min(thickness - data_res, 1) < 0)
     atlas_res = atlas_res[0]
     target_res = atlas_res if target_res is None else utils.reformat_to_n_channels_array(target_res, n_dims)[0]
+    if type(randomise_res)==bool:
+        randomise_res = n_channels * [randomise_res]
 
     # get shapes
     crop_shape, output_shape, padding_margin = get_shapes(labels_shape, output_shape, atlas_res, target_res,
@@ -196,15 +199,23 @@ def labels_to_image_model(labels_shape,
                 Tinv = batchsize = None
 
             # blur channel
-            sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, data_res[i], 0.42, thickness[i])
-            channel._keras_shape = tuple(channel.get_shape().as_list())
-            channel = layers.GaussianBlur(sigma, blur_range)(channel)
+            if randomise_res[i]:
+                max_res = np.array([9.] * 3)
+                resolution, blur_res = layers.SampleResolution(atlas_res, max_res, .05, return_thickness=True)(
+                    means_input)
+                sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, resolution, mult_coef=0.42, thickness=blur_res)
+                channel = layers.DynamicGaussianBlur(0.75 * max_res / np.array(atlas_res), blur_range)([channel, sigma])
+                channel, rel_map = layers.MimicAcquisition(atlas_res, atlas_res, output_shape, True)([channel, resolution])
 
-            # resample channel
-            if downsample[i]:
-                channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res, True)
             else:
-                channel, rel_map = l2i_et.resample_tensor(channel, output_shape, build_reliability_map=True)
+                sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, data_res[i], mult_coef=0.42, thickness=thickness[i])
+                channel._keras_shape = tuple(channel.get_shape().as_list())
+                channel = layers.GaussianBlur(sigma, blur_range)(channel)
+                # resample channel
+                if downsample[i]:
+                    channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res, True)
+                else:
+                    channel, rel_map = l2i_et.resample_tensor(channel, output_shape, build_reliability_map=True)
 
             # align the channels back to the first one with a small error
             if simulate_registration_error[i] & (i != idx_first_input_channel):

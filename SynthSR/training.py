@@ -18,6 +18,7 @@ def training(labels_dir,
              prior_means,
              prior_stds,
              path_generation_labels,
+             prior_distributions='normal',
              images_dir=None,
              path_generation_classes=None,
              FS_sort=True,
@@ -97,16 +98,22 @@ def training(labels_dir,
     distribution. Regouped labels will thus share the same Gaussian when samling a new image. Should be the path to a 1d
     numpy array with the same length as generation_labels. and contain values between 0 and K-1, where K is the total
     number of classes. Default is all labels have different classes.
-    :param prior_means: hyperparameters controlling the prior distributions of the GMM *means*.
-    Each mean of the GMM is sampled at each mini-batch from from a Gaussian prior with two hyperparameters (mean and std
-    dev). Depending on the number of channels, prior_means can thus be the path to:
-    1) if n_channels=1: an array of shape (2, K), where K is the number of classes (K=len(generation_labels) if
-    generation_classes is not given). The mean of the Gaussian distribution associated to class k in [0, ...K-1] is
-    sampled at each mini-batch from N(prior_means[0,k], prior_means[1,k]).
-    2) if n_channels>1: an array of shape (2*n_channels, K), where the i-th block of two rows (for i in
-    [0, ... n_channels]) corresponds to the hypreparameters of channel i. In this case, the channels must be sorted in
-    the same order as indicated by input_channels.
-    :param prior_stds: same as prior_means but for the standard deviations of the GMM.
+    :param prior_distributions: (optional) type of distribution from which we sample the GMM parameters.
+    Can either be 'uniform', or 'normal'. Default is 'normal'.
+    :param prior_means: (optional) hyperparameters controlling the prior distributions of the GMM means. Because
+    these prior distributions are uniform or normal, they require by 2 hyperparameters. Can be a path to:
+    1) an array of shape (2, K), where K is the number of classes (K=len(generation_labels) if generation_classes is
+    not given). The mean of the Gaussian distribution associated to class k in [0, ...K-1] is sampled at each mini-batch
+    from U(prior_means[0,k], prior_means[1,k]) if prior_distributions is uniform, and from
+    N(prior_means[0,k], prior_means[1,k]) if prior_distributions is normal.
+    2) an array of shape (2*n_mod, K), where each block of two rows is associated to hyperparameters derived
+    from different modalities. In this case, if use_specific_stats_for_channel is False, we first randomly select a
+    modality from the n_mod possibilities, and we sample the GMM means like in 2).
+    If use_specific_stats_for_channel is True, each block of two rows correspond to a different channel
+    (n_mod=n_channels), thus we select the corresponding block to each channel rather than randomly drawing it.
+    Default is None, which corresponds all GMM means sampled from uniform distribution U(25, 225).
+    :param prior_stds: (optional) same as prior_means but for the standard deviations of the GMM.
+    Default is None, which corresponds to U(5, 25).
 
     # spatial deformation parameters
     :param flipping: (optional) whether to introduce right/left random flipping. Default is True.
@@ -250,6 +257,7 @@ def training(labels_dir,
                                      generation_classes=path_generation_classes,
                                      prior_means=prior_means,
                                      prior_stds=prior_stds,
+                                     prior_distributions=prior_distributions,
                                      flipping=flipping,
                                      scaling_bounds=scaling_bounds,
                                      rotation_bounds=rotation_bounds,

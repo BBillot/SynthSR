@@ -15,6 +15,7 @@ class BrainGenerator:
                  labels_dir,
                  prior_means,
                  prior_stds,
+                 prior_distributions,
                  generation_labels,
                  images_dir=None,
                  n_neutral_labels=None,
@@ -91,17 +92,26 @@ class BrainGenerator:
         1d numpy array, or the path to a 1d numpy array. It should have the same length as generation_labels, and
         contain values between 0 and K-1, where K is the total number of classes.
         Default is all labels have different classes (K=len(generation_labels)).
-        :param prior_means: hyperparameters controlling the prior distributions of the GMM *means*.
-        Each mean of the GMM is sampled at each mini-batch from from a Gaussian prior with two hyperparameters (mean and
-        std dev). Depending on the number of channels, prior_means can thus be:
-        1) if n_channels=1: an array of shape (2, K), where K is the number of classes (K=len(generation_labels) if
-        generation_classes is not given). The mean of the Gaussian distribution associated to class k in [0, ...K-1] is
-        sampled at each mini-batch from N(prior_means[0,k], prior_means[1,k]).
-        2) if n_channels>1: an array of shape (2*n_channels, K), where the i-th block of two rows (for i in
-        [0, ... n_channels]) corresponds to the hypreparameters of channel i. In this case, the channels must be sorted
-        in the same order as indicated by input_channels.
-        3) the path to a numpy array corresponding to cases 1 or 2.
-        :param prior_stds: same as prior_means but for the standard deviations of the GMM.
+       :param prior_distributions: (optional) type of distribution from which we sample the GMM parameters.
+        Can either be 'uniform', or 'normal'. Default is 'uniform'.
+        :param prior_means: (optional) hyperparameters controlling the prior distributions of the GMM means. Because
+        these prior distributions are uniform or normal, they require by 2 hyperparameters. Thus prior_means can be:
+        1) a sequence of length 2, directly defining the two hyperparameters: [min, max] if prior_distributions is
+        uniform, [mean, std] if the distribution is normal. The GMM means of are independently sampled at each
+        mini_batch from the same distribution.
+        2) an array of shape (2, K), where K is the number of classes (K=len(generation_labels) if generation_classes is
+        not given). The mean of the Gaussian distribution associated to class k in [0, ...K-1] is sampled at each
+        mini-batch from U(prior_means[0,k], prior_means[1,k]) if prior_distributions is uniform, and from
+        N(prior_means[0,k], prior_means[1,k]) if prior_distributions is normal.
+        3) an array of shape (2*n_mod, K), where each block of two rows is associated to hyperparameters derived
+        from different modalities. In this case, if use_specific_stats_for_channel is False, we first randomly select a
+        modality from the n_mod possibilities, and we sample the GMM means like in 2).
+        If use_specific_stats_for_channel is True, each block of two rows correspond to a different channel
+        (n_mod=n_channels), thus we select the corresponding block to each channel rather than randomly drawing it.
+        4) the path to such a numpy array.
+        Default is None, which corresponds to prior_means = [25, 225].
+        :param prior_stds: (optional) same as prior_means but for the standard deviations of the GMM.
+        Default is None, which corresponds to prior_stds = [5, 25].
 
         # spatial deformation parameters
         :param flipping: (optional) whether to introduce right/left random flipping. Default is True.
@@ -200,6 +210,8 @@ class BrainGenerator:
                 'generation_classes should a linear range between 0 and its maximum value.'
         else:
             self.generation_classes = np.arange(self.generation_labels.shape[0])
+
+        self.prior_distributions = prior_distributions
         self.prior_means = utils.load_array_if_path(prior_means)
         self.prior_stds = utils.load_array_if_path(prior_stds)
 
@@ -269,6 +281,7 @@ class BrainGenerator:
                                                     n_labels=len(self.generation_labels),
                                                     prior_means=self.prior_means,
                                                     prior_stds=self.prior_stds,
+                                                    prior_distributions=self.prior_distributions,
                                                     path_images=self.images_paths,
                                                     batchsize=self.batchsize,
                                                     n_channels=self.n_channels,

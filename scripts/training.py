@@ -16,6 +16,7 @@ parser.add_argument("path_generation_labels", type=str)
 # training inputs parameters
 parser.add_argument("--images", type=str, dest="images_dir", default=None)
 parser.add_argument("--generation_classes", type=str, dest="path_generation_classes", default=None)
+parser.add_argument("--prior_distributions", type=str, dest="prior_distributions", default='normal')
 
 # output-related parameters
 parser.add_argument("--batchsize", type=int, dest="batchsize", default=1)

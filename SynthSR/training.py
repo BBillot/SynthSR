@@ -59,7 +59,8 @@ def training(labels_dir,
              work_with_residual_channel=None,
              loss_cropping=None,
              load_model_file=None,
-             initial_epoch=0):
+             initial_epoch=0,
+             model_file_is_from_segmentation_net=False):
     """
     This function trains a Unet to do slice imputation (and possibly synthesis) of MRI images with thick slices,
     using synthetic scans and possibly real scans.
@@ -196,6 +197,8 @@ def training(labels_dir,
     Can be an int, or the path to a 1d numpy array.
     :param load_model_file: (optional) path of an already saved model to load before starting the training.
     :param initial_epoch: (optional) initial epoch for training. Useful for resuming training.
+    :param model_file_is_from_segmentation_net: (optional) set to True if you're loading weights from a segmetation
+    (rather than SR/synthesis) net. This is useful eg to use models pretrained with SynthSeg
     """
 
     n_channels = len(utils.reformat_to_list(input_channels))
@@ -320,9 +323,25 @@ def training(labels_dir,
                           loss_cropping=loss_cropping,
                           metrics=regression_metric,
                           work_with_residual_channel=work_with_residual_channel)
+
     if load_model_file is not None:
         print('loading', load_model_file)
+
+        # If we are loading weights from a segmentation net, we temporarily change the names of the
+        # likelihood and prediction layers
+        if model_file_is_from_segmentation_net:
+            for l in model.layers:
+                if l.name == 'unet_likelihood':
+                    l.name = 'unet_likelihood_'
+
         model.load_weights(load_model_file, by_name=True)
+
+        # Undo the namge changes if needed
+        if model_file_is_from_segmentation_net:
+            for l in model.layers:
+                if l.name == 'unet_likelihood_':
+                    l.name = 'unet_likelihood'
+
     train_model(model, training_generator, learning_rate, lr_decay, epochs, steps_per_epoch, model_dir, log_dir,
                 initial_epoch)
 

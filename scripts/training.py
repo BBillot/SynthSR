@@ -65,6 +65,14 @@ parser.add_argument("--residual_channel", type=int, dest="work_with_residual_cha
 parser.add_argument("--loss_cropping", type=int, dest="loss_cropping")
 parser.add_argument("--load_model_file", type=str, dest="load_model_file", default=None)
 parser.add_argument("--initial_epoch", type=int, dest="initial_epoch", default=0)
+parser.add_argument("--model_file_is_from_seg_net", action='store_true', dest="model_file_is_from_segmentation_net")
+
+# ------------------------------------------------- Support for regularization with segmentation -----------------------
+
+parser.add_argument("--seg_reg_model_file", type=str, dest="segmentation_model_file", default=None)
+parser.add_argument("--seg_reg_label_list", type=str, dest="segmentation_label_list", default=None)
+parser.add_argument("--seg_reg_leabel_equiv", type=str, dest="segmentation_label_equivalency", default=None)
+parser.add_argument("--seg_reg_rel_weight", type=float, dest="relative_weight_segmentation", default=0.25)
 
 args = parser.parse_args()
 training(**vars(args))

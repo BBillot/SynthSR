@@ -3,9 +3,10 @@ import os
 import keras.callbacks as KC
 from keras.models import Model
 from keras.optimizers import Adam
+import numpy as np
 
 # project imports
-from .metrics_model import metrics_model, IdentityLoss
+from .metrics_model import metrics_model, IdentityLoss, add_seg_loss_to_model
 from .brain_generator import BrainGenerator
 
 # third-party imports
@@ -18,6 +19,10 @@ def training(labels_dir,
              prior_means,
              prior_stds,
              path_generation_labels,
+             segmentation_label_list,
+             segmentation_label_equivalency,
+             segmentation_model_file=None,
+             relative_weight_segmentation=0.25,
              prior_distributions='normal',
              images_dir=None,
              path_generation_classes=None,
@@ -199,7 +204,19 @@ def training(labels_dir,
     :param initial_epoch: (optional) initial epoch for training. Useful for resuming training.
     :param model_file_is_from_segmentation_net: (optional) set to True if you're loading weights from a segmetation
     (rather than SR/synthesis) net. This is useful eg to use models pretrained with SynthSeg
+
+    # ----------------------------------------------- Regularize with pretrained segmentation CNN-----------------------
+    :param segmentation_model_file: (optional) h5 model file with the weights of the segmentation model. For now, we
+    assume a Unet architecture with the shame shape as the synthesis / SR Unet. Set to None not to use.
+    :param segmentation_label_list: (optional) npy/npz file with an array with the list of labels segmented by the Unet
+    :param segmentation_label_equivalency: (optional) npy/npz file with an array with as many elements as
+    segmentation_label_list, pinpointing to which generation labels the segmentation labels correspond (set to -1 if you
+    don't want to use a label in the loss). You can use this array e.g., to merge left and right structures, ignore
+    structures...
+    :param relative_weight_segmentation: (optional) relative weight of the Dice loss, compared with the image term loss
+    (eg., l1 or l2)
     """
+
 
     n_channels = len(utils.reformat_to_list(input_channels))
 
@@ -308,17 +325,6 @@ def training(labels_dir,
     # model
     model = Model(unet_model.inputs, [unet_model.get_layer('unet_prediction').output])
 
-    # # TODO: remove this junk
-    # model2 = Model(model.inputs,
-    #                [model.get_layer('image_out').output,
-    #                 model.get_layer('regression_target').output])
-    # a=next(train_example_gen)
-    # b=model2.predict(a)
-    # import numpy as np
-    # utils.save_volume(np.squeeze(b[0]), np.eye(4), None, '/tmp/intputs.nii.gz')
-    # utils.save_volume(np.squeeze(b[1]), np.eye(4), None, '/tmp/target.nii.gz')
-    # # freeview /tmp/intputs.nii.gz /tmp/target.nii.gz
-
     model = metrics_model(input_model=model,
                           loss_cropping=loss_cropping,
                           metrics=regression_metric,
@@ -341,6 +347,47 @@ def training(labels_dir,
             for l in model.layers:
                 if l.name == 'unet_likelihood_':
                     l.name = 'unet_likelihood'
+
+
+    # Load pretrained segmentation CNN and add to the model, if needed
+    if segmentation_model_file is not None:
+        segmentation_labels = np.load(segmentation_label_list)
+        seg_unet_model = nrn_models.unet(nb_features=unet_feat_count,
+                                         input_shape=unet_input_shape,
+                                         nb_levels=n_levels,
+                                         conv_size=conv_size,
+                                         nb_labels=len(segmentation_labels),
+                                         feat_mult=feat_multiplier,
+                                         nb_conv_per_level=nb_conv_per_level,
+                                         conv_dropout=dropout,
+                                         final_pred_activation='softmax',
+                                         batch_norm=-1,
+                                         activation=activation,
+                                         input_model=None)
+
+        seg_unet_model.load_weights(segmentation_model_file, by_name=True)
+        seg_unet_model.trainable = False
+        for l in seg_unet_model.layers:
+            l.trainable = False
+
+        # To decide where to clip the synthesized images, we look at the 2nd and 98th percentiles of the first case
+        first_image = utils.list_images_in_folder(images_dir)[0]
+        I = utils.load_volume(first_image, im_only=True).flatten()
+        n1 = np.round(0.02 * len(I)).astype('int')
+        n2 = np.round(0.98 * len(I)).astype('int')
+        Isorted = np.sort(I)
+        mini = Isorted[n1]
+        maxi = Isorted[n2]
+
+        model = add_seg_loss_to_model(input_model=model,
+                                               seg_model=seg_unet_model,
+                                               generation_labels=generation_labels,
+                                               segmentation_label_equivalency=segmentation_label_equivalency,
+                                               rel_weight=relative_weight_segmentation,
+                                               loss_cropping=loss_cropping,
+                                               mini=mini,
+                                               maxi=maxi)
+
 
     train_model(model, training_generator, learning_rate, lr_decay, epochs, steps_per_epoch, model_dir, log_dir,
                 initial_epoch)

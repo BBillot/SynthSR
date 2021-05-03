@@ -155,6 +155,7 @@ def labels_to_image_model(labels_shape,
 
     # build synthetic image
     labels._keras_shape = tuple(labels.get_shape().as_list())
+    labels = KL.Lambda(lambda x: x, name='segmentation_target')(labels)
     image = layers.SampleConditionalGMM()([labels, means_input, stds_input])
 
     # loop over synthetic channels

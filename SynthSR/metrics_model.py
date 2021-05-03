@@ -3,9 +3,12 @@ import tensorflow as tf
 import keras.layers as KL
 import keras.backend as K
 from keras.models import Model
+import numpy as np
 
 # third-party imports
 from ext.lab2im import utils
+from ext.lab2im import edit_tensors as l2i_et
+from ext.lab2im import layers
 
 
 def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residual_channel=None):
@@ -14,7 +17,9 @@ def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residua
     last_tensor = input_model.outputs[0]
 
     # add residual if needed
-    if work_with_residual_channel is not None:
+    if work_with_residual_channel is None:
+        last_tensor = KL.Lambda(lambda x: x, name='predicted_image')(last_tensor)
+    else:
         slice_list = list()
         for c in work_with_residual_channel:
             tensor = input_model.get_layer('image_out').output
@@ -24,7 +29,7 @@ def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residua
             slices = KL.Lambda(lambda x: tf.concat(x, axis=-1))(slice_list)
         else:
             slices = slice_list[0]
-        last_tensor = KL.Add()([slices, last_tensor])
+        last_tensor = KL.Add(name='predicted_image')([slices, last_tensor])
 
     # get crisp, ground truth image
     image_gt = input_model.get_layer('regression_target').output
@@ -81,6 +86,73 @@ def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residua
     # create the model and return
     model = Model(inputs=input_model.inputs, outputs=last_tensor)
     return model
+
+
+# Add pretrained segmentation CNN to model to regularize synthesis
+def add_seg_loss_to_model(input_model, seg_model, generation_labels, segmentation_label_equivalency, rel_weight, loss_cropping, mini=-1e10, maxi=1e10):
+
+    # get required layers from input models
+    image_loss = input_model.outputs[0]
+    predicted_image = input_model.get_layer('predicted_image').output
+    segmentation_target = input_model.get_layer('segmentation_target').output
+
+    # Push predicted image through segmentation CNN (requires clipping / normalization)
+    input_normalized = KL.Lambda(lambda x: (K.clip(x, mini, maxi) - mini) / (maxi - mini), name='input_normalized')(predicted_image)
+
+    predicted_seg = seg_model(input_normalized)
+
+    # crop output to evaluate loss function in centre patch
+    if loss_cropping is not None:
+        # format loss_cropping
+        target_shape = predicted_image.get_shape().as_list()[1:-1]
+        n_dims, _ = utils.get_dims(target_shape)
+        loss_cropping = utils.reformat_to_list(loss_cropping, length=n_dims)
+
+        # perform cropping
+        begin_idx = [int((target_shape[i] - loss_cropping[i]) / 2) for i in range(n_dims)]
+        segmentation_target = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
+                                                size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')))(segmentation_target)
+        predicted_seg = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
+                                                size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')))(predicted_seg)
+
+
+
+    if type(segmentation_label_equivalency) is str:
+        segmentation_label_equivalency = np.load(segmentation_label_equivalency)
+    if type(generation_labels) is str:
+        generation_labels = np.load(generation_labels)
+
+    gt_onehot = list()
+    pred_onehot = list()
+    for i in range(len(generation_labels)):
+        idx = np.where(segmentation_label_equivalency==generation_labels[i])[0]
+        if len(idx)>0:
+            tensor = KL.Lambda(lambda x: tf.cast(x[...,-1]==i,dtype='float32'))(segmentation_target)
+            gt_onehot.append(tensor)
+
+            if len(idx)==1:
+                tensor2 = KL.Lambda(lambda x: x[..., idx[0]])(predicted_seg)
+            elif len(idx)==2:
+                tensor2 = KL.Lambda(lambda x: x[..., idx[0]] + x[..., idx[1]])(predicted_seg)
+            elif len(idx)==3:
+                tensor2 = KL.Lambda(lambda x: x[..., idx[0]] + x[..., idx[1]] + x[..., idx[2]])(predicted_seg)
+            else:
+                raise Exception("uuummm weird that you're merging so many labels...")
+            pred_onehot.append(tensor2)
+
+    gt_tensor = KL.Lambda(lambda x: tf.stack(x, -1))(gt_onehot) if len(gt_onehot) > 1 else gt_onehot[0]
+    pred_tensor = KL.Lambda(lambda x: tf.stack(x, -1))(pred_onehot) if len(pred_onehot) > 1 else pred_onehot[0]
+
+    # Dice loss: it's crucial to disable the checks, so we can use incomplete segmentations
+    dice_loss = layers.DiceLoss(enable_checks=False)([gt_tensor, pred_tensor], name='dice_loss')
+
+    total_loss = KL.Lambda(lambda x: x[0] + rel_weight * x[1])([image_loss, dice_loss])
+
+    # create the model and return
+    model = Model(inputs=input_model.inputs, outputs=total_loss)
+
+    return model
+
 
 
 class IdentityLoss(object):

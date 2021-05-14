@@ -89,7 +89,7 @@ def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residua
 
 
 # Add pretrained segmentation CNN to model to regularize synthesis
-def add_seg_loss_to_model(input_model, seg_model, generation_labels, segmentation_label_equivalency, rel_weight, loss_cropping, mini=-1e10, maxi=1e10):
+def add_seg_loss_to_model(input_model, seg_model, generation_labels, segmentation_label_equivalency, rel_weight, loss_cropping, mini=None, maxi=None, fs_header=False):
 
     # get required layers from input models
     image_loss = input_model.outputs[0]
@@ -97,9 +97,17 @@ def add_seg_loss_to_model(input_model, seg_model, generation_labels, segmentatio
     segmentation_target = input_model.get_layer('segmentation_target').output
 
     # Push predicted image through segmentation CNN (requires clipping / normalization)
-    input_normalized = KL.Lambda(lambda x: (K.clip(x, mini, maxi) - mini) / (maxi - mini), name='input_normalized')(predicted_image)
+    if mini is None:
+        input_normalized = KL.Lambda(lambda x: x + 0.0, name='input_normalized')(predicted_image)
+    else:
+        input_normalized = KL.Lambda(lambda x: (K.clip(x, mini, maxi) - mini) / (maxi - mini), name='input_normalized')(predicted_image)
 
-    predicted_seg = seg_model(input_normalized)
+    if fs_header:
+        input_normalized_rotated =  KL.Lambda(lambda x: K.reverse(K.permute_dimensions(x, [0, 1, 3, 2, 4]), axes = 2), name='input_normalized_rotated') (input_normalized)
+        predicted_seg_rotated = seg_model(input_normalized_rotated)
+        predicted_seg =  KL.Lambda(lambda x: K.permute_dimensions(K.reverse(x, axes = 2), [0, 1, 3, 2, 4])) (predicted_seg_rotated)
+    else:
+        predicted_seg = seg_model(input_normalized)
 
     # crop output to evaluate loss function in centre patch
     if loss_cropping is not None:

@@ -22,6 +22,7 @@ def training(labels_dir,
              segmentation_label_list=None,
              segmentation_label_equivalency=None,
              segmentation_model_file=None,
+             fs_header_segnet = False,
              relative_weight_segmentation=0.25,
              prior_distributions='normal',
              images_dir=None,
@@ -208,6 +209,8 @@ def training(labels_dir,
     # ----------------------------------------------- Regularize with pretrained segmentation CNN-----------------------
     :param segmentation_model_file: (optional) h5 model file with the weights of the segmentation model. For now, we
     assume a Unet architecture with the shame shape as the synthesis / SR Unet. Set to None not to use.
+    :param fs_header_segnet: set to True if the segmentation network expects data in FS orientation (rather than the
+    default diagonal voxel-to-ras matrix).
     :param segmentation_label_list: (optional) npy/npz file with an array with the list of labels segmented by the Unet
     :param segmentation_label_equivalency: (optional) npy/npz file with an array with as many elements as
     segmentation_label_list, pinpointing to which generation labels the segmentation labels correspond (set to -1 if you
@@ -371,13 +374,17 @@ def training(labels_dir,
             l.trainable = False
 
         # To decide where to clip the synthesized images, we look at the 2nd and 98th percentiles of the first case
-        first_image = utils.list_images_in_folder(images_dir)[0]
-        I = utils.load_volume(first_image, im_only=True).flatten()
-        n1 = np.round(0.02 * len(I)).astype('int')
-        n2 = np.round(0.98 * len(I)).astype('int')
-        Isorted = np.sort(I)
-        mini = Isorted[n1]
-        maxi = Isorted[n2]
+        if images_dir is None:
+            mini = None
+            maxi = None
+        else:
+            first_image = utils.list_images_in_folder(images_dir)[0]
+            I = utils.load_volume(first_image, im_only=True).flatten()
+            n1 = np.round(0.02 * len(I)).astype('int')
+            n2 = np.round(0.98 * len(I)).astype('int')
+            Isorted = np.sort(I)
+            mini = Isorted[n1]
+            maxi = Isorted[n2]
 
         model = add_seg_loss_to_model(input_model=model,
                                                seg_model=seg_unet_model,
@@ -386,8 +393,8 @@ def training(labels_dir,
                                                rel_weight=relative_weight_segmentation,
                                                loss_cropping=loss_cropping,
                                                mini=mini,
-                                               maxi=maxi)
-
+                                               maxi=maxi,
+                                               fs_header=fs_header_segnet)
 
     train_model(model, training_generator, learning_rate, lr_decay, epochs, steps_per_epoch, model_dir, log_dir,
                 initial_epoch)

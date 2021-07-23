@@ -61,6 +61,7 @@ from scipy.ndimage.filters import convolve
 from scipy.ndimage import label as scipy_label
 from scipy.ndimage.morphology import distance_transform_edt, binary_fill_holes
 from scipy.ndimage import binary_dilation, binary_erosion, gaussian_filter
+from scipy.interpolate import RegularGridInterpolator as rgi
 
 # project imports
 from . import utils
@@ -354,6 +355,87 @@ def get_ras_axes(aff, n_dims=3):
     img_ras_axes = np.argmax(np.absolute(aff_inverted[0:n_dims, 0:n_dims]), axis=0)
     return img_ras_axes
 
+
+def rescale_voxel_size(volume, aff, new_vox_size):
+    """This function resizes the voxels of a volume to a new provided size, while adjusting the header to keep the RAS
+    :param volume: a numpy array
+    :param aff: affine matrix of the volume
+    :param new_vox_size: new voxel size (3 - element numpy vector) in mm
+    :return: new volume and affine matrix
+    """
+
+    pixdim = np.sqrt(np.sum(aff * aff, axis=0))[:-1]
+    new_vox_size = np.array(new_vox_size)
+    factor = pixdim / new_vox_size
+    sigmas = 0.25 / factor
+    sigmas[factor > 1] = 0  # don't blur if upsampling
+
+    volume_filt = gaussian_filter(volume, sigmas)
+
+    # volume2 = zoom(volume_filt, factor, order=1, mode='reflect', prefilter=False)
+    x = np.arange(0, volume_filt.shape[0])
+    y = np.arange(0, volume_filt.shape[1])
+    z = np.arange(0, volume_filt.shape[2])
+
+    my_interpolating_function = rgi((x, y, z), volume_filt)
+
+    start = - (factor - 1) / (2 * factor)
+    step = 1.0 / factor
+    stop = start + step * np.ceil(volume_filt.shape * factor)
+
+    xi = np.arange(start=start[0], stop=stop[0], step=step[0])
+    yi = np.arange(start=start[1], stop=stop[1], step=step[1])
+    zi = np.arange(start=start[2], stop=stop[2], step=step[2])
+    xi[xi < 0] = 0
+    yi[yi < 0] = 0
+    zi[zi < 0] = 0
+    xi[xi > (volume_filt.shape[0] - 1)] = volume_filt.shape[0] - 1
+    yi[yi > (volume_filt.shape[1] - 1)] = volume_filt.shape[1] - 1
+    zi[zi > (volume_filt.shape[2] - 1)] = volume_filt.shape[2] - 1
+
+    xig, yig, zig = np.meshgrid(xi, yi, zi, indexing='ij', sparse=True)
+    volume2 = my_interpolating_function((xig, yig, zig))
+
+    aff2 = aff.copy()
+    for c in range(3):
+        aff2[:-1, c] = aff2[:-1, c] / factor[c]
+    aff2[:-1, -1] = aff2[:-1, -1] - np.matmul(aff2[:-1, :-1], 0.5 * (factor - 1))
+
+    return volume2, aff2
+
+
+def resample_like(vol_ref, aff_ref, vol_flo, aff_flo):
+    """This function reslices a floating image to the space of a reference image
+    :param vol_res: a numpy array with the reference volume
+    :param aff_ref: affine matrix of the reference volume
+    :param vol_flo: a numpy array with the floating volume
+    :param aff_flo: affine matrix of the floating volume
+    :return: resliced volume
+    """
+
+    T = np.matmul(np.linalg.inv(aff_flo), aff_ref)
+
+    xf = np.arange(0, vol_flo.shape[0])
+    yf = np.arange(0, vol_flo.shape[1])
+    zf = np.arange(0, vol_flo.shape[2])
+
+    my_interpolating_function = rgi((xf, yf, zf), vol_flo, bounds_error=False, fill_value=0.0)
+
+    xr = np.arange(0, vol_ref.shape[0])
+    yr = np.arange(0, vol_ref.shape[1])
+    zr = np.arange(0, vol_ref.shape[2])
+
+    xrg, yrg, zrg = np.meshgrid(xr, yr, zr, indexing='ij', sparse=False)
+    n = xrg.size
+    xrg = xrg.reshape([n])
+    yrg = yrg.reshape([n])
+    zrg = zrg.reshape([n])
+    bottom = np.ones_like(xrg)
+    coords = np.stack([xrg, yrg, zrg, bottom])
+    coords_new = np.matmul(T, coords)[:-1, :]
+    result = my_interpolating_function((coords_new[0, :], coords_new[1, :], coords_new[2, :]))
+
+    return result.reshape(vol_ref.shape)
 
 def align_volume_to_ref(volume, aff, aff_ref=None, return_aff=False, n_dims=None):
     """This function aligns a volume to a reference orientation (axis and direction) specified by an affine matrix.

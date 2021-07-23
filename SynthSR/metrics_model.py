@@ -13,12 +13,31 @@ from ext.lab2im import layers
 
 def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residual_channel=None):
 
-    # first layer: input
-    last_tensor = input_model.outputs[0]
+    # If probabilistic, split predictions of intensities and spreads
+    if metrics=='laplace':
+        n_channels = int(input_model.outputs[0].shape[-1]/2)
+        intensities_list = list()
+        spreads_list = list()
+        tensor = input_model.outputs[0]
+        for c in range(n_channels):
+            tmp_intensities = KL.Lambda(lambda x: tf.expand_dims(x[..., c], axis=-1))(tensor)
+            intensities_list.append(tmp_intensities)
+            tmp_spreads = KL.Lambda(lambda x: tf.expand_dims(x[..., c + n_channels], axis=-1))(tensor)
+            spreads_list.append(tmp_spreads)
+        if n_channels>1:
+            intensities_tensor = KL.Lambda(lambda x: tf.concat(x, axis=-1))(intensities_list)
+            spreads_tensor = KL.Lambda(lambda x: tf.concat(x, axis=-1))(spreads_list)
+        else:
+            intensities_tensor = intensities_list[0]
+            spreads_tensor = spreads_list[0]
+    else:
+        intensities_tensor = input_model.outputs[0]
+        spreads_tensor = None
+
 
     # add residual if needed
     if work_with_residual_channel is None:
-        last_tensor = KL.Lambda(lambda x: x, name='predicted_image')(last_tensor)
+        intensities_tensor = KL.Lambda(lambda x: x, name='predicted_image')(intensities_tensor)
     else:
         slice_list = list()
         for c in work_with_residual_channel:
@@ -29,7 +48,7 @@ def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residua
             slices = KL.Lambda(lambda x: tf.concat(x, axis=-1))(slice_list)
         else:
             slices = slice_list[0]
-        last_tensor = KL.Add(name='predicted_image')([slices, last_tensor])
+        intensities_tensor = KL.Add(name='predicted_image')([slices, intensities_tensor])
 
     # get crisp, ground truth image
     image_gt = input_model.get_layer('regression_target').output
@@ -47,17 +66,25 @@ def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residua
         image_gt = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
                                                 size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
                              name='cropping_gt')(image_gt)
-        last_tensor = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
+        intensities_tensor = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
                                 size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
-                                name='cropping_pred')(last_tensor)
+                                name='cropping_pred')(intensities_tensor)
+        if metrics == 'laplace':
+            spreads_tensor = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + begin_idx + [0], dtype='int32'),
+                                size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
+                                name='cropping_pred_spread')(spreads_tensor)
 
     # metrics is computed as part of the model
-    if metrics == 'l2':
-        last_tensor = KL.Subtract()([last_tensor, image_gt])
-        last_tensor = KL.Lambda(lambda x: K.mean(K.square(x)), name='L2_loss')(last_tensor)
+    if metrics == 'laplace':
+        err_tensor = KL.Subtract()([intensities_tensor, image_gt])
+        b_tensor = KL.Lambda(lambda x: 1e-5 + 0.02 * tf.exp(x), name='predicted_bs')(spreads_tensor)
+        loss_tensor = KL.Lambda(lambda x: K.mean(tf.math.log(2*x[0]) + (K.abs(x[1]) / x[0])), name='laplace_loss')([b_tensor, err_tensor])
+    elif metrics == 'l2':
+        err_tensor = KL.Subtract()([intensities_tensor, image_gt])
+        loss_tensor = KL.Lambda(lambda x: K.mean(K.square(x)), name='L2_loss')(err_tensor)
     elif metrics == 'l1':
-        last_tensor = KL.Subtract()([last_tensor, image_gt])
-        last_tensor = KL.Lambda(lambda x: K.mean(K.abs(x)), name='L1_loss')(last_tensor)
+        err_tensor = KL.Subtract()([intensities_tensor, image_gt])
+        loss_tensor = KL.Lambda(lambda x: K.mean(K.abs(x)), name='L1_loss')(err_tensor)
     elif metrics == 'ssim':
 
         # TODO: true 3D
@@ -68,23 +95,23 @@ def metrics_model(input_model, loss_cropping=16, metrics='l1', work_with_residua
 
         ssim_xy = KL.Lambda(
             lambda x: tf.image.ssim(x[0], x[1],
-                                    1.0), name='ssim_xy')([last_tensor, image_gt])
+                                    1.0), name='ssim_xy')([intensities_tensor, image_gt])
         ssim_xz = KL.Lambda(
             lambda x: tf.image.ssim(tf.transpose(x[0], perm=[0, 1, 3, 2, 4]), tf.transpose(x[1], perm=[0, 1, 3, 2, 4]),
-                                    1.0), name='ssim_xz')([last_tensor, image_gt])
+                                    1.0), name='ssim_xz')([intensities_tensor, image_gt])
         ssim_yz = KL.Lambda(
             lambda x: tf.image.ssim(tf.transpose(x[0], perm=[0, 2, 3, 1, 4]), tf.transpose(x[1], perm=[0, 2, 3, 1, 4]),
-                                    1.0), name='ssim_yz')([last_tensor, image_gt])
+                                    1.0), name='ssim_yz')([intensities_tensor, image_gt])
 
-        last_tensor = KL.Lambda(
+        loss_tensor = KL.Lambda(
             lambda x: -(1 / 3) * tf.reduce_mean(x[0]) - (1 / 3) * tf.reduce_mean(x[1]) - (1 / 3) * tf.reduce_mean(x[2]),
             name='ssim_loss')([ssim_xy, ssim_xz, ssim_yz])
 
     else:
-        raise Exception('metrics should either be "l1" or "l2" or "ssim", got {}'.format(metrics))
+        raise Exception('metrics should either be "l1" or "l2" or "ssim" oro "laplace", got {}'.format(metrics))
 
     # create the model and return
-    model = Model(inputs=input_model.inputs, outputs=last_tensor)
+    model = Model(inputs=input_model.inputs, outputs=loss_tensor)
     return model
 
 

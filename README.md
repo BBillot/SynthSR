@@ -1,5 +1,79 @@
 # SynthSR
 
+This repository contains an implementation of SynthSR, a convolutional neural network that turns a clinical MRI scan 
+(or even CT scan!) of any orientation, resolution and contrast into 1 mm isotropic MP-RAGE. You can then run your
+favorite neuroimaging software on these synthetic images for segmentation / registration / any other analysis:
+
+[Iglesias JE, Billot B, Balbastre Y, Tabari A, Conklin J, RG Gonzalez, Alexander DC, Golland P, Edlow B, Fischl B:
+"Joint super-resolution and synthesis of 1 mm isotropic MP-RAGE volumes from clinical MRI exams with scans of different 
+orientation, resolution and contrast". NeuroImage, in press.](https://www.sciencedirect.com/science/article/pii/S1053811921004833)
+
+![Examples](data/README_figures/examples.png)
+
+----------------
+
+### Easy use of SynthSR with one command
+
+We provide an "all purpose" model that can be applied to a scan of any resolution of contrast.
+Once all the python packages are installed (see below), you can simply test SynthSR on your own data with:
+```
+python ./scripts/predict_command_line.py <input> <output> [--cpu] [--threads N]]
+```
+where:
+- `<input>` is the path to an image to super-resolve / synthesize. \
+This can also be a folder, in which case all the image inside that folder will be processed.
+- `<output>` is the path where the synthetic 1 mm MP-RAGE will be saved. \
+This must be a folder if `<input>` designates a folder.
+- `<--cpu>` (optional) run on the CPU rather than the GPU.
+- `<--threads N>` (optional) number of threads to use when using CPU. The default is just 1, 
+so crank it up for faster processing if you are using the CPU version and have multiple cores!
+- `<--ct>` (optional) Use this flag when processing CT scans (details below).
+
+The synthetic 1mm MP-RAGE will be of a standard contrast, bias field corrected, and with white matter lesions inpainted.
+
+Regarding CT scans: SynthSR does a decent job with CT them! The only caveat is that the dynamic range of CT is very 
+different to that of MRI, so they need to be clipped to [0, 80] Hounsfield units. You can use the --ct flag to do this,
+as long as your image volume is in Hounsfield units. If not, you will have to clip to the Hounsfield equivalent yourself
+(and not use --ct).
+
+
+### Processing Hyperfine scans
+
+We also provide a dedicated, multispectral (T1+T2) model for Hyperfine scans. While you can apply the all-purpose model
+above to the T1 or T2 scans from Hyperfine, their relatively low in-plane resolution (1.5mm) and particularly high noise often
+degrades the results (especially when processing the T1). Beter results can be obtained by using both the T1 (FSE) and
+T2 (FSE) scans as input to a separate, dedicated version of SynthSR:
+```
+python ./scripts/predict_command_line_hyperfine.py <input_t1> <input_t2> <output> [--cpu] [--threads N]]
+```
+where, as in the previous version, `<input_t1>`, `<input_t2>` and `<output>` can be single files or directories.
+
+![Examples](data/README_figures/example_hyperfine.png)
+
+We emphasize that:
+- This version is for the "standard" Hyperfine T1 and T2 acquisitions (FSE sequence) at 1.5x1.5x5mm axial resolution.
+- If there is motion between the T1 and T2 scans, the T2 needs to be pre-registered to the space of the T1, but without 
+resamling to the 1.5x1.5x5mm space of the T1, which would introduce large resampling artifacts. This can be done with 
+the headers; below are examples of how to achieve this with two popular packages: FreeSurfer and NiftyReg.
+
+FreeSurfer
+```
+mri_robust_register --mov T2.nii.gz --dst T1.nii.gz --mapmovhdr T2.reg.nii.gz --cost NMI --noinit --nomulti --lta /tmp/trash.lta
+ ```
+NiftyReg
+```
+reg_aladin -ref T1.nii.gz -flo T2.nii.gz -aff T2_to_T1.aff -rigOnly -nac -ln 1 -res /tmp/trash.nii.gz
+reg_transform -updSform T2.nii.gz T2_to_T1.aff T2.reg.nii.gz
+```
+
+Also, we note that this Hyperfine super-resolution model is trained with synthetic images with no pathology; while it
+may be able to cope with small lesions, it will likely fail in eg stroke. We are looking forward to other 
+super-resolution approaches (possibly supervised with real images) that do a better job!
+
+
+
+### Advanced use: training your own models
+
 This repository contains code to train a Convolutional Neural Network (CNN) for Super-resolution (SR), or joint SR and 
 data synthesis. The method can also be configured to achieve denoising and bias field correction. 
 

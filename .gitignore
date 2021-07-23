@@ -4,3 +4,13 @@ venv
 
 scripts/check_generation.py
 SynthSR/check_generation.py
+scripts/logTensorSRtest.py
+
+ext/neuron/__init__.py
+ext/pynd/__init__.py
+ext/pytools/__init__.py
+ext/lab2m/__init__.py
+
+.gitignore
+
+

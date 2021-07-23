@@ -66,7 +66,7 @@ def training(labels_dir,
              loss_cropping=None,
              load_model_file=None,
              initial_epoch=0,
-             model_file_is_from_segmentation_net=False):
+             model_file_has_different_lhood_layer=False):
     """
     This function trains a Unet to do slice imputation (and possibly synthesis) of MRI images with thick slices,
     using synthetic scans and possibly real scans.
@@ -194,7 +194,7 @@ def training(labels_dir,
     :param epochs: (optional) number of epochs.
     :param steps_per_epoch: (optional) number of steps per epoch. Default is 1000. Since no online validation is
     possible, this is equivalent to the frequency at which the models are saved.
-    :param regression_metric: (optional) loss used in training. Can be 'l1' (default), 'l2', or 'ssim'
+    :param regression_metric: (optional) loss used in training. Can be 'l1' (default), 'l2', 'ssim', or 'laplace'
     :param work_with_residual_channel: (optional) if you have a channel that is similar to the output (e.g., in
     imputation), it is convenient to predict the residual, rather than the image from scratch. This parameter is a list
     of indices of the synthetic channels you want to add the residual to (must have the same length as output_channels,
@@ -203,8 +203,8 @@ def training(labels_dir,
     Can be an int, or the path to a 1d numpy array.
     :param load_model_file: (optional) path of an already saved model to load before starting the training.
     :param initial_epoch: (optional) initial epoch for training. Useful for resuming training.
-    :param model_file_is_from_segmentation_net: (optional) set to True if you're loading weights from a segmetation
-    (rather than SR/synthesis) net. This is useful eg to use models pretrained with SynthSeg
+    :param model_file_has_different_lhood_layer: (optional) set to True if eg you're loading weights from a segmetation
+    (rather than SR/synthesis) net. Useful to use models pretrained with SynthSeg or different number of channels
 
     # ----------------------------------------------- Regularize with pretrained segmentation CNN-----------------------
     :param segmentation_model_file: (optional) h5 model file with the weights of the segmentation model. For now, we
@@ -308,11 +308,16 @@ def training(labels_dir,
     unet_input_shape = brain_generator.model_output_shape
 
     # prepare the Unet model
+    if regression_metric=='laplace':
+        nb_labels_unet = 2 * n_output_channels
+    else:
+        nb_labels_unet = n_output_channels
+
     unet_model = nrn_models.unet(nb_features=unet_feat_count,
                                  input_shape=unet_input_shape,
                                  nb_levels=n_levels,
                                  conv_size=conv_size,
-                                 nb_labels=n_output_channels,
+                                 nb_labels=nb_labels_unet,
                                  feat_mult=feat_multiplier,
                                  nb_conv_per_level=nb_conv_per_level,
                                  conv_dropout=dropout,
@@ -338,7 +343,7 @@ def training(labels_dir,
 
         # If we are loading weights from a segmentation net, we temporarily change the names of the
         # likelihood and prediction layers
-        if model_file_is_from_segmentation_net:
+        if model_file_has_different_lhood_layer:
             for l in model.layers:
                 if l.name == 'unet_likelihood':
                     l.name = 'unet_likelihood_'
@@ -346,7 +351,7 @@ def training(labels_dir,
         model.load_weights(load_model_file, by_name=True)
 
         # Undo the namge changes if needed
-        if model_file_is_from_segmentation_net:
+        if model_file_has_different_lhood_layer:
             for l in model.layers:
                 if l.name == 'unet_likelihood_':
                     l.name = 'unet_likelihood'
@@ -356,7 +361,7 @@ def training(labels_dir,
     if segmentation_model_file is not None:
         segmentation_labels = np.load(segmentation_label_list)
         seg_unet_model = nrn_models.unet(nb_features=unet_feat_count,
-                                         input_shape=unet_input_shape,
+                                         input_shape=[*unet_input_shape[:-1], 1],
                                          nb_levels=n_levels,
                                          conv_size=conv_size,
                                          nb_labels=len(segmentation_labels),

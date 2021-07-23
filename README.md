@@ -31,6 +31,12 @@ so crank it up for faster processing if you are using the CPU version and have m
 
 The synthetic 1mm MP-RAGE will be of a standard contrast, bias field corrected, and with white matter lesions inpainted.
 
+We note that the robustness against MR contrast / orientation /resolution was not presented in the original SynthSR
+paper, so if you use this model, please cite:
+
+[Billot B, Greve DN, Puonti O, Thielscher A, Van Leemput K, Fischl B, Dalca AV, Iglesias JE:
+"SynthSeg: Domain Randomisation for Segmentation of Brain MRI Scans of any Contrast and Resolution". Under review (preprint on ArXiv ).](https://arxiv.org/abs/2107.09559)
+
 Regarding CT scans: SynthSR does a decent job with CT them! The only caveat is that the dynamic range of CT is very 
 different to that of MRI, so they need to be clipped to [0, 80] Hounsfield units. You can use the --ct flag to do this,
 as long as your image volume is in Hounsfield units. If not, you will have to clip to the Hounsfield equivalent yourself

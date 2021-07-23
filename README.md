@@ -17,7 +17,7 @@ orientation, resolution and contrast". NeuroImage, in press.](https://www.scienc
 We provide an "all purpose" model that can be applied to a scan of any resolution of contrast.
 Once all the python packages are installed (see below), you can simply test SynthSR on your own data with:
 ```
-python ./scripts/predict_command_line.py <input> <output> [--cpu] [--threads N] [--ct]]
+python ./scripts/predict_command_line.py <input> <output> [--cpu] [--threads N] [--ct]
 ```
 where:
 - `<input>` is the path to an image to super-resolve / synthesize. \

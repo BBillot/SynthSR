@@ -1,0 +1,2 @@
+SynthSR_v10_210712.h5: general "all purpose" model for single scans		
+SynthSR_v10_210712_hyperfine.h5: multi-spectral T1+T2 model for Hyperfine 1.5x1.5x5 mm data

@@ -69,10 +69,10 @@ if ('.nii.gz' not in basename) & ('.nii' not in basename) & ('.mgz' not in basen
         raise Exception('extension not supported for %s, only use: nii.gz, .nii, .mgz, or .npz' % path_images)
     images_to_segment = utils.list_images_in_folder(path_images)
     utils.mkdir(path_predictions)
-    path_predictions = [os.path.join(path_predictions, os.path.basename(image)).replace('.nii', '_seg.nii') for image in
+    path_predictions = [os.path.join(path_predictions, os.path.basename(image)).replace('.nii', '_SynthSR.nii') for image in
                    images_to_segment]
-    path_predictions = [seg_path.replace('.mgz', '_seg.mgz') for seg_path in path_predictions]
-    path_predictions = [seg_path.replace('.npz', '_seg.npz') for seg_path in path_predictions]
+    path_predictions = [seg_path.replace('.mgz', '_SynthSR.mgz') for seg_path in path_predictions]
+    path_predictions = [seg_path.replace('.npz', '_SynthSR.npz') for seg_path in path_predictions]
 
 else:
     assert os.path.isfile(path_images), "files does not exist: %s " \

@@ -103,8 +103,9 @@ for idx, (path_image, path_prediction) in enumerate(zip(images_to_segment, path_
     S[0, idx[0]:idx[0]+I.shape[1], idx[1]:idx[1]+I.shape[2], idx[2]:idx[2]+I.shape[3], :] = I
     output = unet_model.predict(S)
     pred = np.squeeze(output)
-    pred[pred<0] = 0
     pred = 255 * pred
+    pred[pred<0] = 0
+    pred[pred>128] = 128
     pred = pred[idx[0]:idx[0]+I.shape[1], idx[1]:idx[1]+I.shape[2], idx[2]:idx[2]+I.shape[3]]
     utils.save_volume(pred,aff2,None,path_prediction)
 

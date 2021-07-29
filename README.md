@@ -64,7 +64,7 @@ the headers; below are examples of how to achieve this with two popular packages
 
 FreeSurfer
 ```
-mri_robust_register --mov T2.nii.gz --dst T1.nii.gz --mapmovhdr T2.reg.nii.gz --cost NMI --noinit --nomulti --lta /tmp/trash.lta
+mri_robust_register --mov T2.nii.gz --dst T1.nii.gz --mapmovhdr T2.reg.nii.gz --cost NMI --noinit --nomulti --lta /dev/null
  ```
 NiftyReg
 ```

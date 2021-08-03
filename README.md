@@ -20,7 +20,7 @@ You can download the dev version [HERE](https://surfer.nmr.mgh.harvard.edu/pub/d
 Instructions on how to use SynthSR once FreeSurfer has been installed can be found [HERE](https://surfer.nmr.mgh.harvard.edu/fswiki/SynthSR).
 
 
-### Easy use of SynthSR with one command
+### I know a bit about Python: easy use of SynthSR with one command
 
 We provide an "all purpose" model that can be applied to a scan of any resolution of contrast.
 Once all the python packages are installed (see below), you can simply test SynthSR on your own data with:

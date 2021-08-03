@@ -12,6 +12,14 @@ orientation, resolution and contrast". NeuroImage, in press.](https://www.scienc
 
 ----------------
 
+
+### "I don't know anything about Python"
+
+Don't worry! SynthSR is now part of the development ("dev") version of [FreeSurfer](https://surfer.nmr.mgh.harvard.edu/fswiki). 
+You can download the dev version [HERE](https://surfer.nmr.mgh.harvard.edu/pub/dist/freesurfer/dev/).
+Instructions on how to use SynthSR once FreeSurfer has been installed can be found [HERE](https://surfer.nmr.mgh.harvard.edu/fswiki/SynthSR).
+
+
 ### Easy use of SynthSR with one command
 
 We provide an "all purpose" model that can be applied to a scan of any resolution of contrast.

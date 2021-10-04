@@ -18,6 +18,7 @@
     -strip_extension
     -strip_suffix
     -mkdir
+    -mkcmd
 4- shape-related functions
     -get_dims
     -get_resample_shape
@@ -30,8 +31,8 @@
     -create_shearing_transform
 6- miscellaneous
     -infer
-    -print_loop_info
-    -rearrange_label_list
+    -LoopInfo
+    -get_mapping_lut
     -build_training_generator
     -find_closest_number_divisible_by_m
     -build_binary_structure
@@ -92,7 +93,7 @@ def load_volume(path_volume, im_only=True, squeeze=True, dtype=None, aff_ref=Non
     if aff_ref is not None:
         from . import edit_volumes  # the import is done here to avoid import loops
         n_dims, _ = get_dims(list(volume.shape), max_channels=10)
-        volume, aff = edit_volumes.align_volume_to_ref(volume, aff, aff_ref=aff_ref, return_aff=True)
+        volume, aff = edit_volumes.align_volume_to_ref(volume, aff, aff_ref=aff_ref, return_aff=True, n_dims=n_dims)
 
     if im_only:
         return volume
@@ -113,6 +114,8 @@ def save_volume(volume, aff, header, path, res=None, dtype=None, n_dims=3):
     :param n_dims: (optional) number of dimensions, to avoid confusion in multi-channel case. Default is None, where
     n_dims is automatically inferred.
     """
+
+    mkdir(os.path.dirname(path))
     if dtype is not None:
         volume = volume.astype(dtype=dtype)
     if '.npz' in path:
@@ -153,7 +156,7 @@ def get_volume_info(path_volume, return_volume=False, aff_ref=None):
     im_shape = im_shape[:n_dims]
 
     # get labels res
-    if '.nii.gz' in path_volume:
+    if '.nii' in path_volume:
         data_res = np.array(header['pixdim'][1:n_dims + 1]).tolist()
     elif '.mgz' in path_volume:
         data_res = np.array(header['delta']).tolist()  # mgz image
@@ -165,7 +168,7 @@ def get_volume_info(path_volume, return_volume=False, aff_ref=None):
         from . import edit_volumes  # the import is done here to avoid import loops
         ras_axes = edit_volumes.get_ras_axes(aff, n_dims=n_dims)
         ras_axes_ref = edit_volumes.get_ras_axes(aff_ref, n_dims=n_dims)
-        im = edit_volumes.align_volume_to_ref(im, aff, aff_ref=aff_ref)
+        im = edit_volumes.align_volume_to_ref(im, aff, aff_ref=aff_ref, n_dims=n_dims)
         im_shape = np.array(im_shape)
         data_res = np.array(data_res)
         im_shape[ras_axes_ref] = im_shape[ras_axes]
@@ -206,10 +209,10 @@ def get_list_labels(label_list=None, labels_dir=None, save_label_list=None, FS_s
         # go through all labels files and compute unique list of labels
         labels_paths = list_images_in_folder(labels_dir)
         label_list = np.empty(0)
-        loop_info = LoopInfo(len(labels_paths), 10, 'processing')
+        loop_info = LoopInfo(len(labels_paths), 10, 'processing', print_time=True)
         for lab_idx, path in enumerate(labels_paths):
             loop_info.update(lab_idx)
-            y = load_volume(path)
+            y = load_volume(path, dtype='int32')
             y_unique = np.unique(y)
             label_list = np.unique(np.concatenate((label_list, y_unique))).astype('int')
 
@@ -221,17 +224,21 @@ def get_list_labels(label_list=None, labels_dir=None, save_label_list=None, FS_s
     if FS_sort:
         neutral_FS_labels = [0, 14, 15, 16, 21, 22, 23, 24, 72, 77, 80, 85, 101, 102, 103, 104, 105, 165, 251, 252, 253,
                              254, 255, 258, 259, 331, 332, 333, 334, 335, 336, 337, 338, 339, 340,
-                             502, 506, 507, 508, 509, 511, 512, 514, 515, 516, 530]
+                             502, 506, 507, 508, 509, 511, 512, 514, 515, 516, 517, 530,
+                             531, 532, 533, 534, 535, 536, 537]
         neutral = list()
         left = list()
         right = list()
         for la in label_list:
             if la in neutral_FS_labels:
-                neutral.append(la)
-            elif (0 < la < 14) | (16 < la < 21) | (24 < la < 40) | (20100 < la < 20110):
-                left.append(la)
-            elif (39 < la < 72) | (20000 < la < 20010):
-                right.append(la)
+                if la not in neutral:
+                    neutral.append(la)
+            elif (0 < la < 14) | (16 < la < 21) | (24 < la < 40) | (135 < la < 138) | (20100 < la < 20110):
+                if la not in left:
+                    left.append(la)
+            elif (39 < la < 72) | (162 < la < 165) | (20000 < la < 20010):
+                if la not in right:
+                    right.append(la)
             else:
                 raise Exception('label {} not in our current FS classification, '
                                 'please update get_list_labels in utils.py'.format(la))
@@ -418,7 +425,7 @@ def list_files(path_dir, whole_path=True, expr=None, cond_type='or'):
 
 
 def list_subfolders(path_dir, whole_path=True, expr=None, cond_type='or'):
-    """This function returns a list of subfolders contained in a folder, whith possible regexp.
+    """This function returns a list of subfolders contained in a folder, with possible regexp.
     :param path_dir: path of a folder
     :param whole_path: (optional) whether to return whole path or just the subfolder names.
     :param expr: (optional) regexp for files to list. Can be a str or a list of str.
@@ -502,6 +509,8 @@ def mkdir(path_dir):
 
 
 def mkcmd(*args):
+    """Creates terminal command with provided inputs.
+    Example: mkcmd('mv', 'source', 'dest') will give 'mv source dest'."""
     return ' '.join([str(arg) for arg in args])
 
 
@@ -843,15 +852,27 @@ class LoopInfo:
                 print(self.text + ' {}'.format(iteration))
 
 
-def rearrange_label_list(label_list):
-    """This functions maps a list of N values between 0 and N-1, and gives the corresponding look-up table."""
-    label_list = np.array(reformat_to_list(label_list))
-    n_labels = label_list.shape[0]
-    new_label_list = np.arange(n_labels)
-    lut = np.zeros(np.max(label_list) + 1, dtype='int32')
-    for n in range(n_labels):
-        lut[int(label_list[n])] = n
-    return new_label_list, lut
+def get_mapping_lut(source, dest=None):
+    """This functions returns the look-up table to map a list of N values (source) to another list (dest).
+    If the second list is not given, we assume it is equal to [0, ..., N-1]."""
+
+    # initialise
+    source = np.array(reformat_to_list(source), dtype='int32')
+    n_labels = source.shape[0]
+
+    # build new label list if neccessary
+    if dest is None:
+        dest = np.arange(n_labels, dtype='int32')
+    else:
+        assert len(source) == len(dest), 'label_list and new_label_list should have the same length'
+        dest = np.array(reformat_to_list(dest, dtype='int'))
+
+    # build look-up table
+    lut = np.zeros(np.max(source) + 1, dtype='int32')
+    for source, dest in zip(source, dest):
+        lut[source] = dest
+
+    return lut
 
 
 def build_training_generator(gen, batchsize):

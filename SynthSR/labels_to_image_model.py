@@ -10,7 +10,7 @@ from ext.lab2im import layers
 from ext.neuron import layers as nrn_layers
 from ext.lab2im import edit_tensors as l2i_et
 from ext.lab2im.edit_volumes import get_ras_axes
-from ext.lab2im.layers import RandomSpatialDeformation, RandomFlip
+from ext.lab2im.layers import RandomSpatialDeformation, RandomFlip, MimicAcquisition
 
 
 def labels_to_image_model(labels_shape,
@@ -32,6 +32,7 @@ def labels_to_image_model(labels_shape,
                           nonlin_std=3.,
                           nonlin_shape_factor=.0625,
                           simulate_registration_error=True,
+                          randomise_res=False,
                           data_res=None,
                           thickness=None,
                           downsample=False,
@@ -75,60 +76,54 @@ def labels_to_image_model(labels_shape,
     downsample = utils.reformat_to_list(downsample, n_channels) if downsample else (np.min(thickness - data_res, 1) < 0)
     atlas_res = atlas_res[0]
     target_res = atlas_res if target_res is None else utils.reformat_to_n_channels_array(target_res, n_dims)[0]
+    if isinstance(randomise_res, bool):
+        randomise_res = n_channels * [randomise_res]
 
     # get shapes
     crop_shape, output_shape, padding_margin = get_shapes(labels_shape, output_shape, atlas_res, target_res,
                                                           padding_margin, output_div_by_n)
 
-    # create new_label_list and corresponding LUT to make sure that labels go from 0 to N-1
-    new_generation_labels, lut = utils.rearrange_label_list(generation_labels)
-
     # define model inputs
-    labels_input = KL.Input(shape=labels_shape+[1], name='labels_input')
-    means_input = KL.Input(shape=list(new_generation_labels.shape) + [n_channels], name='means_input')
-    stds_input = KL.Input(shape=list(new_generation_labels.shape) + [n_channels], name='stds_input')
+    labels_input = KL.Input(shape=labels_shape + [1], name='labels_input', dtype='int32')
+    means_input = KL.Input(shape=list(generation_labels.shape) + [n_channels], name='means_input')
+    stds_input = KL.Input(shape=list(generation_labels.shape) + [n_channels], name='std_devs_input')
     list_inputs = [labels_input, means_input, stds_input]
 
     # add real image to input list if using real regression target
     if use_real_image:
-        real_image_input = KL.Input(shape=labels_shape+[1], name='real_image_input')
-        list_inputs.append(real_image_input)
-        real_image = KL.Lambda(lambda x: tf.cast(x, dtype='float32'))(real_image_input)
+        real_image = KL.Input(shape=labels_shape+[1], dtype='float32', name='real_image_input')
+        list_inputs.append(real_image)
     else:
         real_image = None
 
-    # convert labels to new_label_list
-    labels = l2i_et.convert_labels(labels_input, lut)
-
     # pad labels
     if padding_margin is not None:
-        pad = np.transpose(np.array([[0] + padding_margin + [0]] * 2))
-        labels = KL.Lambda(lambda x: tf.pad(x, tf.cast(tf.convert_to_tensor(pad), dtype='int32')), name='pad')(labels)
+        labels = layers.PadAroundCentre(pad_margin=padding_margin)(labels_input)
         labels_shape = labels.get_shape().as_list()[1:n_dims+1]
         if use_real_image:
-            real_image = KL.Lambda(lambda x: tf.pad(x, tf.cast(tf.convert_to_tensor(pad), dtype='int32')))(real_image)
+            labels = layers.PadAroundCentre(pad_margin=padding_margin)(real_image)
+    else:
+        labels = labels_input
 
     # deform labels
-    if (scaling_bounds is not False) | (rotation_bounds is not False) | (shearing_bounds is not False) | \
-       (translation_bounds is not False) | (nonlin_std > 0):
-        labels._keras_shape = tuple(labels.get_shape().as_list())
-        if use_real_image:
-            real_image._keras_shape = tuple(real_image.get_shape().as_list())
-            labels, real_image = RandomSpatialDeformation(scaling_bounds=scaling_bounds,
-                                                          rotation_bounds=rotation_bounds,
-                                                          shearing_bounds=shearing_bounds,
-                                                          translation_bounds=translation_bounds,
-                                                          nonlin_std=nonlin_std,
-                                                          nonlin_shape_factor=nonlin_shape_factor,
-                                                          inter_method=['nearest', 'linear'])([labels, real_image])
-        else:
-            labels = RandomSpatialDeformation(scaling_bounds=scaling_bounds,
-                                              rotation_bounds=rotation_bounds,
-                                              shearing_bounds=shearing_bounds,
-                                              translation_bounds=translation_bounds,
-                                              nonlin_std=nonlin_std,
-                                              nonlin_shape_factor=nonlin_shape_factor,
-                                              inter_method='nearest')(labels)
+    labels._keras_shape = tuple(labels.get_shape().as_list())
+    if use_real_image:
+        real_image._keras_shape = tuple(real_image.get_shape().as_list())
+        labels, real_image = RandomSpatialDeformation(scaling_bounds=scaling_bounds,
+                                                      rotation_bounds=rotation_bounds,
+                                                      shearing_bounds=shearing_bounds,
+                                                      translation_bounds=translation_bounds,
+                                                      nonlin_std=nonlin_std,
+                                                      nonlin_shape_factor=nonlin_shape_factor,
+                                                      inter_method=['nearest', 'linear'])([labels, real_image])
+    else:
+        labels = RandomSpatialDeformation(scaling_bounds=scaling_bounds,
+                                          rotation_bounds=rotation_bounds,
+                                          shearing_bounds=shearing_bounds,
+                                          translation_bounds=translation_bounds,
+                                          nonlin_std=nonlin_std,
+                                          nonlin_shape_factor=nonlin_shape_factor,
+                                          inter_method='nearest')(labels)
 
     # cropping
     if crop_shape != labels_shape:
@@ -145,14 +140,18 @@ def labels_to_image_model(labels_shape,
         labels._keras_shape = tuple(labels.get_shape().as_list())
         if use_real_image:
             real_image._keras_shape = tuple(real_image.get_shape().as_list())
-            labels, real_image = RandomFlip(get_ras_axes(aff, n_dims)[0], True, new_generation_labels,
+            labels, real_image = RandomFlip(get_ras_axes(aff, n_dims)[0], True, generation_labels,
                                             n_neutral_labels)([labels, real_image])
         else:
-            labels = RandomFlip(get_ras_axes(aff, n_dims)[0], True, new_generation_labels, n_neutral_labels)(labels)
+            labels = RandomFlip(get_ras_axes(aff, n_dims)[0], True, generation_labels, n_neutral_labels)(labels)
 
     # build synthetic image
     labels._keras_shape = tuple(labels.get_shape().as_list())
-    image = layers.SampleConditionalGMM()([labels, means_input, stds_input])
+    image = layers.SampleConditionalGMM(generation_labels)([labels, means_input, stds_input])
+
+    # convert labels to new_label_list
+    labels = layers.ConvertLabels(generation_labels, name='segmentation_target')(labels)
+    labels = KL.Lambda(lambda x: x, name='segmentation_target')(labels)
 
     # loop over synthetic channels
     channels = list()
@@ -161,7 +160,7 @@ def labels_to_image_model(labels_shape,
     for i, channel in enumerate(split):
 
         # apply bias field
-        if (bias_field_std > 0) & input_channels[i]:
+        if input_channels[i]:
             channel._keras_shape = tuple(channel.get_shape().as_list())
             channel = layers.BiasFieldCorruption(bias_field_std, bias_shape_factor, False)(channel)
 
@@ -195,16 +194,23 @@ def labels_to_image_model(labels_shape,
             else:
                 Tinv = batchsize = None
 
-            # blur channel
-            sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, data_res[i], 0.42, thickness[i])
             channel._keras_shape = tuple(channel.get_shape().as_list())
-            channel = layers.GaussianBlur(sigma, blur_range)(channel)
 
-            # resample channel
-            if downsample[i]:
-                channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res, True)
+            # blur and downsample channel
+            if randomise_res[i]:
+                max_res = np.array([9.] * 3)
+                resolution, blur_res = layers.SampleResolution(atlas_res, max_res)(means_input)
+                sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, resolution, mult_coef=.42, thickness=blur_res)
+                channel = layers.DynamicGaussianBlur(0.75 * max_res / np.array(atlas_res), blur_range)([channel, sigma])
+                channel, rel_map = MimicAcquisition(atlas_res, atlas_res, output_shape, True)([channel, resolution])
+
             else:
-                channel, rel_map = l2i_et.resample_tensor(channel, output_shape, build_reliability_map=True)
+                sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, data_res[i], .42, thickness[i])
+                channel = layers.GaussianBlur(sigma, blur_range)(channel)
+                if downsample[i]:
+                    channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res, True)
+                else:
+                    channel, rel_map = l2i_et.resample_tensor(channel, output_shape, build_reliability_map=True)
 
             # align the channels back to the first one with a small error
             if simulate_registration_error[i] & (i != idx_first_input_channel):
@@ -220,7 +226,7 @@ def labels_to_image_model(labels_shape,
             if build_reliability_maps:
                 channels.append(rel_map)
 
-    # concatenate channels back
+    # concatenate all channels back
     image = KL.Lambda(lambda x: tf.concat(x, -1))(channels) if len(channels) > 1 else channels[0]
 
     # if no synthetic image is used as regression target, we need to assign the real image to the target!
@@ -234,7 +240,7 @@ def labels_to_image_model(labels_shape,
             target = l2i_et.resample_tensor(target, output_shape)
     else:
         target = KL.Lambda(lambda x: tf.concat(x, axis=-1))(targets) if len(targets) > 1 else targets[0]
-    target = KL.Lambda(lambda x: tf.cast(x, dtype='float32'), name='regression_target')(target)
+    target = KL.Lambda(lambda x: tf.cast(x[0], dtype='float32'), name='regression_target')([target, labels])
 
     # build model (dummy layer enables to keep the target when plugging this model to other models)
     image = KL.Lambda(lambda x: x[0], name='image_out')([image, target])

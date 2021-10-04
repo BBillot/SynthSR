@@ -16,7 +16,7 @@ else:
 
 
 # we have to specify a model dir, where the models will be saved after each epoch
-model_dir = '/cluster/scratch/friday/models/diffusion2/'  # folder where they will be saved
+model_dir = '/cluster/scratch/friday/models/diffusion/'  # folder where they will be saved
 
 # general
 regression_metric = 'l1'  # metric used to compute the loss function
@@ -24,6 +24,7 @@ labels_folder = '/autofs/space/panamint_005/users/iglesias/data/ImputationSynthe
 images_folder = None
 target_res = None # will use 0.7 from the label maps
 output_shape = 64 # [size of label maps is 100x95x94]
+loss_cropping = 56
 
 # channels
 input_channels = [True, True, True, True, True, True, True, True]  # specify which channel will be used as input channel for the network
@@ -35,6 +36,7 @@ generation_labels = '/autofs/space/panamint_005/users/iglesias/data/ImputationSy
 generation_classes = None
 prior_means = np.load('/autofs/space/panamint_005/users/iglesias/data/ImputationSynthesis/DTI_SR/data/stats_files/means_for_l1.npy')
 prior_stds = np.load('/autofs/space/panamint_005/users/iglesias/data/ImputationSynthesis/DTI_SR/data/stats_files/stds_for_l1.npy')
+prior_stds = prior_stds * 0.5;
 
 # augmentation parameters
 scaling_bounds = 0.1
@@ -97,6 +99,7 @@ training(labels_folder,
          output_channel=output_channel,
          target_res=target_res,
          output_shape=output_shape,
+	 loss_cropping=loss_cropping,
          flipping=flipping,
          scaling_bounds=scaling_bounds,
          rotation_bounds=rotation_bounds,

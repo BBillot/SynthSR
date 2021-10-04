@@ -16,6 +16,7 @@ parser.add_argument("path_generation_labels", type=str)
 # training inputs parameters
 parser.add_argument("--images", type=str, dest="images_dir", default=None)
 parser.add_argument("--generation_classes", type=str, dest="path_generation_classes", default=None)
+parser.add_argument("--prior_distributions", type=str, dest="prior_distributions", default='normal')
 
 # output-related parameters
 parser.add_argument("--batchsize", type=int, dest="batchsize", default=1)
@@ -63,6 +64,14 @@ parser.add_argument("--metric", type=str, dest="regression_metric", default='l1'
 parser.add_argument("--residual_channel", type=int, dest="work_with_residual_channel", default=None)
 parser.add_argument("--loss_cropping", type=int, dest="loss_cropping")
 parser.add_argument("--checkpoint", type=str, dest="checkpoint", default=None)
+
+# ------------------------------------------------- Support for regularization with segmentation -----------------------
+
+parser.add_argument("--seg_reg_model_file", type=str, dest="segmentation_model_file", default=None)
+parser.add_argument("--seg_reg_label_list", type=str, dest="segmentation_label_list", default=None)
+parser.add_argument("--seg_reg_leabel_equiv", type=str, dest="segmentation_label_equivalency", default=None)
+parser.add_argument("--seg_reg_rel_weight", type=float, dest="relative_weight_segmentation", default=0.25)
+
 
 args = parser.parse_args()
 training(**vars(args))

@@ -1,7 +1,22 @@
 """This scripts generates 3 examples for plain SR between LR synthetic T1 scans (input channel) and HR synthetic T1
 scans (regression targets, or output channel). Therefore this script does not use real images as regerssion targets.
 Because we do straight SR, the input channel is generated directly by blurring/downsampling the HR target regression
-target, which are not corrupted nor downsampled in any way."""
+target, which are not corrupted nor downsampled in any way.
+
+If you use this code, please the SynthSR paper in:
+https://github.com/BBillot/SynthSR/blob/master/bibtex.bib
+
+Copyright 2020 Benjamin Billot
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
+compliance with the License. You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software distributed under the License is
+distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+implied. See the License for the specific language governing permissions and limitations under the
+License.
+"""
+
 
 import os
 import time

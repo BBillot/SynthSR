@@ -4,10 +4,12 @@ This repository contains an implementation of SynthSR, a convolutional neural ne
 (or even CT scan!) of any orientation, resolution and contrast into 1 mm isotropic MP-RAGE. You can then run your
 favorite neuroimaging software on these synthetic images for segmentation / registration / any other analysis:
 
-[Iglesias JE, Billot B, Balbastre Y, Tabari A, Conklin J, RG Gonzalez, Alexander DC, Golland P, Edlow B, Fischl B:
-"Joint super-resolution and synthesis of 1 mm isotropic MP-RAGE volumes from clinical MRI exams with scans of different 
-orientation, resolution and contrast". NeuroImage, in press.](https://www.sciencedirect.com/science/article/pii/S1053811921004833)
-
+[Joint super-resolution and synthesis of 1 mm isotropic MP-RAGE volumes from clinical MRI exams with scans of different 
+orientation, resolution and contrast](https://www.sciencedirect.com/science/article/pii/S1053811921004833) \
+Iglesias JE, Billot B, Balbastre Y, Tabari A, Conklin J, RG Gonzalez, Alexander DC, Golland P, Edlow B, Fischl B \
+NeuroImage (2021)
+\
+\
 ![Examples](data/README_figures/examples.png)
 
 ----------------
@@ -42,8 +44,9 @@ The synthetic 1mm MP-RAGE will be of a standard contrast, bias field corrected, 
 We note that the robustness against MR contrast / orientation /resolution was not presented in the original SynthSR
 paper, so if you use this model, please cite:
 
-[Billot B, Greve DN, Puonti O, Thielscher A, Van Leemput K, Fischl B, Dalca AV, Iglesias JE:
-"SynthSeg: Domain Randomisation for Segmentation of Brain MRI Scans of any Contrast and Resolution". Under review (preprint on ArXiv ).](https://arxiv.org/abs/2107.09559)
+[SynthSeg: Domain Randomisation for Segmentation of Brain MRI Scans of any Contrast and Resolution](https://arxiv.org/abs/2107.09559) \
+Billot B, Greve DN, Puonti O, Thielscher A, Van Leemput K, Fischl B, Dalca AV, Iglesias JE \
+Under review (preprint on ArXiv)
 
 Regarding CT scans: SynthSR does a decent job with CT them! The only caveat is that the dynamic range of CT is very 
 different to that of MRI, so they need to be clipped to [0, 80] Hounsfield units. You can use the --ct flag to do this,
@@ -191,6 +194,20 @@ All the other requirements are listed in requirements.txt. We list here the most
 ----------------
 
 ### Citation/Contact
+
+This code is under [Apache 2.0](LICENSE.txt) licensing. \
+If you use it in a publication, please cite one of the following papers (depending on the model you use):
+
+**Joint super-resolution and synthesis of 1 mm isotropic MP-RAGE volumes from clinical MRI exams with scans of different 
+orientation, resolution and contrast** \
+Iglesias JE, Billot B, Balbastre Y, Tabari A, Conklin J, RG Gonzalez, Alexander DC, Golland P, Edlow B, Fischl B \
+NeuroImage (2021) \
+[[link](https://www.sciencedirect.com/science/article/pii/S1053811921004833) | [bibtex](bibtex.bib)]
+
+
+**SynthSeg: Domain Randomisation for Segmentation of Brain MRI Scans of any Contrast and Resolution** \
+B. Billot, D.N. Greve, O. Puonti, A. Thielscher, K. Van Leemput, B. Fischl, A.V. Dalca, J.E. Iglesias \
+[[arxiv](https://arxiv.org/abs/2107.09559) | [bibtex](bibtex.bib)]
 
 This repository contains the code related to a submission that is still under review.
 

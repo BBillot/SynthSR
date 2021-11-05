@@ -1,3 +1,19 @@
+"""
+If you use this code, please cite the first SynthSeg paper:
+https://github.com/BBillot/lab2im/blob/master/bibtex.bib
+
+Copyright 2020 Benjamin Billot
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
+compliance with the License. You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software distributed under the License is
+distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+implied. See the License for the specific language governing permissions and limitations under the
+License.
+"""
+
+
 # python imports
 import numpy as np
 import keras.layers as KL
@@ -130,7 +146,8 @@ def get_shapes(labels_shape, output_shape, atlas_res, target_res, output_div_by_
 
         # make sure output shape is divisible by output_div_by_n
         if output_div_by_n is not None:
-            tmp_shape = [utils.find_closest_number_divisible_by_m(s, output_div_by_n) for s in output_shape]
+            tmp_shape = [utils.find_closest_number_divisible_by_m(s, output_div_by_n)
+                         for s in output_shape]
             if output_shape != tmp_shape:
                 print('output shape {0} not divisible by {1}, changed to {2}'.format(output_shape, output_div_by_n,
                                                                                      tmp_shape))

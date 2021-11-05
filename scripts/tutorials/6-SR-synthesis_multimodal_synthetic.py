@@ -1,6 +1,22 @@
 """This scripts generates 3 examples where we now use multi-modal data to regress HR synthetic scans. Specifically we
 regress HR synthetic T1 scans from LR T1 and T2 scans. Thus this script produces synthetic HR T1 scans as regression
-target, and aligned HR synthetic scans (input channels) simulating T1 and T2 scans acquired at LR."""
+target, and aligned HR synthetic scans (input channels) simulating T1 and T2 scans acquired at LR.
+
+
+If you use this code, please the SynthSR paper in:
+https://github.com/BBillot/SynthSR/blob/master/bibtex.bib
+
+Copyright 2020 Benjamin Billot
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
+compliance with the License. You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software distributed under the License is
+distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+implied. See the License for the specific language governing permissions and limitations under the
+License.
+"""
+
 
 import os
 import time

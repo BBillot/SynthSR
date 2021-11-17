@@ -1,7 +1,7 @@
 # SynthSR
 
 This repository contains an implementation of SynthSR, a convolutional neural network that turns a clinical MRI scan 
-(or even CT scan!) of any orientation, resolution and contrast into 1 mm isotropic MP-RAGE. You can then run your
+(or even CT scan!) of any orientation, resolution and contrast into 1 mm isotropic MP-RAGE, **while inpainting lesions (which enables easier segmentation, registration, etc)**. You can then run your
 favorite neuroimaging software on these synthetic images for segmentation / registration / any other analysis:
 
 [Joint super-resolution and synthesis of 1 mm isotropic MP-RAGE volumes from clinical MRI exams with scans of different 

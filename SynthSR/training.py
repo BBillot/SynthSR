@@ -78,7 +78,7 @@ def training(labels_dir,
              feat_multiplier=2,
              dropout=0,
              activation='elu',
-             learning_rate=1e-4,
+             lr=1e-4,
              lr_decay=0,
              epochs=100,
              steps_per_epoch=1000,
@@ -209,7 +209,7 @@ def training(labels_dir,
     :param activation: (optional) activation function. Can be 'elu', 'relu'.
 
     # ----------------------------------------------- Training parameters ----------------------------------------------
-    :param learning_rate: (optional) learning rate for the training. Default is 1e-4
+    :param lr: (optional) learning rate for the training. Default is 1e-4
     :param lr_decay: (optional) learing rate decay. Default is 0, where no decay is applied.
     :param epochs: (optional) number of epochs.
     :param steps_per_epoch: (optional) number of steps per epoch. Default is 1000. Since no online validation is
@@ -409,7 +409,7 @@ def training(labels_dir,
                                       fs_header=fs_header_segnet)
 
     # train
-    train_model(model, input_generator, learning_rate, lr_decay, epochs, steps_per_epoch, model_dir, checkpoint)
+    train_model(model, input_generator, lr, lr_decay, epochs, steps_per_epoch, model_dir, checkpoint)
 
 
 def train_model(model,

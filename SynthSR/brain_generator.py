@@ -209,50 +209,47 @@ class BrainGenerator:
             self.n_neutral_labels = n_neutral_labels
         else:
             self.n_neutral_labels = self.generation_labels.shape[0]
-        self.batchsize = batchsize
         self.input_channels = np.array(utils.reformat_to_list(input_channels))
         self.output_channel = utils.reformat_to_list(output_channel)
         self.n_channels = len(self.input_channels)
-
-        # output parameters
         self.target_res = utils.load_array_if_path(target_res)
+        self.batchsize = batchsize
+        # preliminary operations
         self.padding_margin = utils.load_array_if_path(padding_margin)
         self.flipping = flipping
         self.output_shape = utils.load_array_if_path(output_shape)
         self.output_div_by_n = output_div_by_n
-
         # GMM parameters
+        self.prior_distributions = prior_distributions
         if generation_classes is not None:
             self.generation_classes = utils.load_array_if_path(generation_classes)
             assert self.generation_classes.shape == self.generation_labels.shape, \
-                'if provided, generation labels should have the same shape as generation_labels'
+                'if provided, generation_classes should have the same shape as generation_labels'
             unique_classes = np.unique(self.generation_classes)
             assert np.array_equal(unique_classes, np.arange(np.max(unique_classes)+1)), \
                 'generation_classes should a linear range between 0 and its maximum value.'
         else:
             self.generation_classes = np.arange(self.generation_labels.shape[0])
-
-        self.prior_distributions = prior_distributions
         self.prior_means = utils.load_array_if_path(prior_means)
         self.prior_stds = utils.load_array_if_path(prior_stds)
-
-        # spatial transformation parameters
+        # linear transformation parameters
         self.scaling_bounds = utils.load_array_if_path(scaling_bounds)
         self.rotation_bounds = utils.load_array_if_path(rotation_bounds)
         self.shearing_bounds = utils.load_array_if_path(shearing_bounds)
         self.translation_bounds = utils.load_array_if_path(translation_bounds)
+        # elastic transformation parameters
         self.nonlin_std = nonlin_std
         self.nonlin_shape_factor = nonlin_shape_factor
         self.simulate_registration_error = simulate_registration_error
-
-        # blurring/resampling parameters
+        # blurring parameters
         self.randomise_res = randomise_res
         self.data_res = utils.load_array_if_path(data_res)
+        assert not (self.randomise_res & (self.data_res is not None)), \
+            'randomise_res and data_res cannot be provided at the same time'
         self.thickness = utils.load_array_if_path(thickness)
         self.downsample = downsample
         self.blur_range = blur_range
         self.build_reliability_maps = build_reliability_maps
-
         # bias field parameters
         self.bias_field_std = bias_field_std
         self.bias_shape_factor = bias_shape_factor
@@ -324,8 +321,10 @@ class BrainGenerator:
         list_images = list()
         list_targets = list()
         for i in range(self.batchsize):
-            list_images.append(edit_volumes.align_volume_to_ref(image[i], np.eye(4), aff_ref=self.aff))
-            list_targets.append(edit_volumes.align_volume_to_ref(target[i], np.eye(4), aff_ref=self.aff))
-        image = np.stack(list_images, axis=0)
-        target = np.stack(list_targets, axis=0)
+            list_images.append(edit_volumes.align_volume_to_ref(image[i], np.eye(4),
+                                                                aff_ref=self.aff, n_dims=self.n_dims))
+            list_targets.append(edit_volumes.align_volume_to_ref(target[i], np.eye(4),
+                                                                 aff_ref=self.aff, n_dims=self.n_dims))
+        image = np.squeeze(np.stack(list_images, axis=0))
+        target = np.squeeze(np.stack(list_targets, axis=0))
         return image, target

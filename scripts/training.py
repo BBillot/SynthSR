@@ -72,7 +72,7 @@ parser.add_argument("--dropout", type=float, dest="dropout", default=0.)
 parser.add_argument("--activation", type=str, dest="activation", default='elu')
 
 # ------------------------------------------------- Training parameters ------------------------------------------------
-parser.add_argument("--lr", type=float, dest="learning_rate", default=1e-4)
+parser.add_argument("--lr", type=float, dest="lr", default=1e-4)
 parser.add_argument("--lr_decay", type=float, dest="lr_decay", default=0)
 parser.add_argument("--epochs", type=int, dest="epochs", default=100)
 parser.add_argument("--steps_per_epoch", type=int, dest="steps_per_epoch", default=1000)

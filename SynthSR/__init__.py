@@ -5,3 +5,4 @@ from . import labels_to_image_model
 from . import metrics_model
 from . import model_inputs
 from . import training
+from . import fine_tuning_with_adversary

@@ -209,6 +209,9 @@ def training(labels_dir,
     :param epochs: (optional) number of epochs.
     :param steps_per_epoch: (optional) number of steps per epoch. Default is 1000. Since no online validation is
     possible, this is equivalent to the frequency at which the models are saved.
+    :param training_ratio: (optional) number of discriminator iterations to take at each training step (whereas the
+    generator is only iterated once per step). This doesn't apply to the first step of the first epoch, where the
+    discriminator is trained for 1,000 iterations. Default is 10.
     :param regression_metric: (optional) loss used in training. Can be 'l1' (default), 'l2', 'ssim', or 'laplace'
     :param work_with_residual_channel: (optional) if you have a channel that is similar to the output (e.g., in
     imputation), it is convenient to predict the residual, rather than the image from scratch. This parameter is a list
@@ -377,8 +380,7 @@ def training(labels_dir,
         for step in range(int(steps_per_epoch)):
 
             # take several training steps for discriminator
-            # tmp_training_ratio = 1000 if (epoch == 0) & (step == 0) else training_ratio
-            tmp_training_ratio = 3 if (epoch == 0) & (step == 0) else training_ratio
+            tmp_training_ratio = 1000 if (epoch == 0) & (step == 0) else training_ratio
             for j in range(tmp_training_ratio):
                 training_inputs, dummy_y = next(input_generator)
                 discr_loss = discriminator_model.train_on_batch(training_inputs, dummy_y)

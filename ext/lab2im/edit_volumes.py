@@ -1898,7 +1898,7 @@ def check_images_in_dir(image_dir, check_values=False, keep_unique=True, max_cha
         # get info
         im, shape, aff, n_dims, _, h, res = utils.get_volume_info(path_image, True, np.eye(4), max_channels)
         axes = get_ras_axes(aff, n_dims=n_dims).tolist()
-        aff[:, np.arange(3)] = aff[:, axes]
+        aff[:, np.arange(n_dims)] = aff[:, axes]
         aff = (np.int32(np.round(np.array(aff[:3, :3]), 2) * 100) / 100).tolist()
         res = (np.int32(np.round(np.array(res), 2) * 100) / 100).tolist()
 

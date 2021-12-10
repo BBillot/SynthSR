@@ -88,6 +88,7 @@ bias_field_std = 0.2
 # blurring/downsampling parameters
 data_res = np.array([[1., 1., 3.], [1., 4.5, 1.]])  # slice spacing for the input channels only
 thickness = np.array([[1., 1., 3.], [1., 3., 1.]])
+randomise_res = False
 downsample = True
 build_reliability_maps = True
 blur_range = 1.15
@@ -118,6 +119,7 @@ training(labels_folder,
          simulate_registration_error=True,
          data_res=data_res,
          thickness=thickness,
+         randomise_res=randomise_res,
          downsample=downsample,
          blur_range=blur_range,
          build_reliability_maps=build_reliability_maps,

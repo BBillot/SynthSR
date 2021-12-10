@@ -327,24 +327,24 @@ def training(labels_dir,
     else:
         nb_labels_unet = n_output_channels
 
-    unet_model = nrn_models.unet(nb_features=unet_feat_count,
-                                 input_shape=unet_input_shape,
-                                 nb_levels=n_levels,
-                                 conv_size=conv_size,
-                                 nb_labels=nb_labels_unet,
-                                 feat_mult=feat_multiplier,
-                                 nb_conv_per_level=nb_conv_per_level,
-                                 conv_dropout=dropout,
-                                 final_pred_activation='linear',
-                                 batch_norm=-1,
-                                 activation=activation,
-                                 input_model=labels_to_image_model)
+    model = nrn_models.unet(nb_features=unet_feat_count,
+                            input_shape=unet_input_shape,
+                            nb_levels=n_levels,
+                            conv_size=conv_size,
+                            nb_labels=nb_labels_unet,
+                            feat_mult=feat_multiplier,
+                            nb_conv_per_level=nb_conv_per_level,
+                            conv_dropout=dropout,
+                            final_pred_activation='linear',
+                            batch_norm=-1,
+                            activation=activation,
+                            input_model=labels_to_image_model)
 
     # input generator
     input_generator = utils.build_training_generator(brain_generator.model_inputs_generator, batchsize)
 
     # model
-    model = models.Model(unet_model.inputs, [unet_model.get_layer('unet_prediction').output])
+    model = models.Model(model.inputs, model.output)
     model = metrics_model(input_model=model,
                           loss_cropping=loss_cropping,
                           metrics=regression_metric,

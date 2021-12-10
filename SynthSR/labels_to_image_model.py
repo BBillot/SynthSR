@@ -117,7 +117,7 @@ def labels_to_image_model(labels_shape,
         labels = layers.PadAroundCentre(pad_margin=padding_margin)(labels_input)
         labels_shape = labels.get_shape().as_list()[1:n_dims+1]
         if use_real_image:
-            labels = layers.PadAroundCentre(pad_margin=padding_margin)(real_image)
+            real_image = layers.PadAroundCentre(pad_margin=padding_margin)(real_image)
     else:
         labels = labels_input
 
@@ -167,7 +167,6 @@ def labels_to_image_model(labels_shape,
 
     # convert labels to new_label_list
     labels = layers.ConvertLabels(generation_labels, name='segmentation_target')(labels)
-    labels = KL.Lambda(lambda x: x, name='segmentation_target')(labels)
 
     # loop over synthetic channels
     channels = list()

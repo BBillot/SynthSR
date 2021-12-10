@@ -1361,8 +1361,9 @@ class PadAroundCentre(Layer):
     def build(self, input_shape):
         # input shape
         self.n_dims = len(input_shape) - 2
-        input_shape[0] = 0
-        input_shape[0 - 1] = 0
+        shape = list(input_shape)
+        shape[0] = 0
+        shape[-1] = 0
 
         if self.pad_margin is not None:
             assert self.pad_shape is None, 'please do not provide a padding shape and margin at the same time.'
@@ -1375,7 +1376,7 @@ class PadAroundCentre(Layer):
             assert self.pad_margin is None, 'please do not provide a padding shape and margin at the same time.'
 
             # pad shape
-            tensor_shape = tf.cast(tf.convert_to_tensor(input_shape), 'int32')
+            tensor_shape = tf.cast(tf.convert_to_tensor(shape), 'int32')
             self.pad_shape_tens = np.array([0] + utils.reformat_to_list(self.pad_shape, length=self.n_dims) + [0])
             self.pad_shape_tens = tf.convert_to_tensor(self.pad_shape_tens, dtype='int32')
             self.pad_shape_tens = tf.math.maximum(tensor_shape, self.pad_shape_tens)

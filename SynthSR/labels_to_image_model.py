@@ -24,7 +24,7 @@ from keras.models import Model
 from ext.lab2im import utils
 from ext.lab2im import layers
 from ext.neuron import layers as nrn_layers
-from ext.lab2im import edit_tensors as l2i_et
+from ext.lab2im import edit_tensors as et
 from ext.lab2im.edit_volumes import get_ras_axes
 from ext.lab2im.layers import RandomSpatialDeformation, RandomFlip, MimicAcquisition
 
@@ -165,8 +165,8 @@ def labels_to_image_model(labels_shape,
     labels._keras_shape = tuple(labels.get_shape().as_list())
     image = layers.SampleConditionalGMM(generation_labels)([labels, means_input, stds_input])
 
-    # convert labels to new_label_list
-    labels = layers.ConvertLabels(generation_labels, name='segmentation_target')(labels)
+    # give name to output labels
+    labels = KL.Lambda(lambda x: x, name='segmentation_target')(labels)
 
     # loop over synthetic channels
     channels = list()
@@ -189,10 +189,10 @@ def labels_to_image_model(labels_shape,
         if not use_real_image:
             if any(c == i for c in output_channel):
                 if crop_shape != output_shape:
-                    sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, target_res)
+                    sigma = et.blurring_sigma_for_downsampling(atlas_res, target_res)
                     channel._keras_shape = tuple(channel.get_shape().as_list())
                     channel = layers.GaussianBlur(sigma)(channel)
-                    channel = l2i_et.resample_tensor(channel, output_shape)
+                    channel = et.resample_tensor(channel, output_shape)
                 targets.append(channel)
 
         # synthetic input channels
@@ -215,17 +215,17 @@ def labels_to_image_model(labels_shape,
             if randomise_res[i]:
                 max_res = np.array([9.] * 3)
                 resolution, blur_res = layers.SampleResolution(atlas_res, max_res)(means_input)
-                sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, resolution, mult_coef=.42, thickness=blur_res)
+                sigma = et.blurring_sigma_for_downsampling(atlas_res, resolution, mult_coef=.42, thickness=blur_res)
                 channel = layers.DynamicGaussianBlur(0.75 * max_res / np.array(atlas_res), blur_range)([channel, sigma])
                 channel, rel_map = MimicAcquisition(atlas_res, atlas_res, output_shape, True)([channel, resolution])
 
             else:
-                sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, data_res[i], .42, thickness[i])
+                sigma = et.blurring_sigma_for_downsampling(atlas_res, data_res[i], .42, thickness[i])
                 channel = layers.GaussianBlur(sigma, blur_range)(channel)
                 if downsample[i]:
-                    channel, rel_map = l2i_et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res, True)
+                    channel, rel_map = et.resample_tensor(channel, output_shape, 'linear', data_res[i], atlas_res, True)
                 else:
-                    channel, rel_map = l2i_et.resample_tensor(channel, output_shape, build_reliability_map=True)
+                    channel, rel_map = et.resample_tensor(channel, output_shape, build_reliability_map=True)
 
             # align the channels back to the first one with a small error
             if simulate_registration_error[i] & (i != idx_first_input_channel):
@@ -249,10 +249,10 @@ def labels_to_image_model(labels_shape,
         real_image._keras_shape = tuple(real_image.get_shape().as_list())
         target = layers.IntensityAugmentation(normalise=True)(real_image)
         if crop_shape != output_shape:
-            sigma = l2i_et.blurring_sigma_for_downsampling(atlas_res, target_res)
+            sigma = et.blurring_sigma_for_downsampling(atlas_res, target_res)
             target._keras_shape = tuple(target.get_shape().as_list())
             target = layers.GaussianBlur(sigma)(target)
-            target = l2i_et.resample_tensor(target, output_shape)
+            target = et.resample_tensor(target, output_shape)
     else:
         target = KL.Lambda(lambda x: tf.concat(x, axis=-1))(targets) if len(targets) > 1 else targets[0]
     target = KL.Lambda(lambda x: tf.cast(x[0], dtype='float32'), name='regression_target')([target, labels])

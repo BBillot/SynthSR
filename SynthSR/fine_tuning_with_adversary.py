@@ -30,7 +30,7 @@ from keras.optimizers import Adam
 from .brain_generator import BrainGenerator
 
 # third-party imports
-from ext.lab2im import utils
+from ext.lab2im import utils, layers
 from ext.neuron import models as nrn_models
 
 
@@ -40,6 +40,10 @@ def training(labels_dir,
              prior_means,
              prior_stds,
              path_generation_labels,
+             path_segmentation_equivalency=None,
+             segmentation_model_file=None,
+             relative_weight_segmentation=0.25,
+             relative_weight_discriminator=0.01,
              prior_distributions='normal',
              path_generation_classes=None,
              FS_sort=True,
@@ -72,12 +76,13 @@ def training(labels_dir,
              feat_multiplier=2,
              dropout=0,
              activation='elu',
-             lr=1e-4,
+             lr_generator=1e-4,
+             lr_discriminator=1e-4,
              lr_decay=0,
              epochs=100,
              steps_per_epoch=1000,
-             training_ratio=10,
-             regression_metric='l1',
+             first_training_ratio=100,
+             training_ratio=5,
              work_with_residual_channel=None,
              loss_cropping=None,
              checkpoint_generator=None,
@@ -212,7 +217,6 @@ def training(labels_dir,
     :param training_ratio: (optional) number of discriminator iterations to take at each training step (whereas the
     generator is only iterated once per step). This doesn't apply to the first step of the first epoch, where the
     discriminator is trained for 1,000 iterations. Default is 10.
-    :param regression_metric: (optional) loss used in training. Can be 'l1' (default), 'l2', 'ssim', or 'laplace'
     :param work_with_residual_channel: (optional) if you have a channel that is similar to the output (e.g., in
     imputation), it is convenient to predict the residual, rather than the image from scratch. This parameter is a list
     of indices of the synthetic channels you want to add the residual to (must have the same length as output_channels,
@@ -310,7 +314,7 @@ def training(labels_dir,
                                  input_shape=unet_input_shape,
                                  nb_levels=n_levels,
                                  conv_size=conv_size,
-                                 nb_labels=2*n_output_channels if regression_metric == 'laplace' else n_output_channels,
+                                 nb_labels=n_output_channels,
                                  feat_mult=feat_multiplier,
                                  nb_conv_per_level=nb_conv_per_level,
                                  conv_dropout=dropout,
@@ -325,6 +329,28 @@ def training(labels_dir,
     # discriminator model
     discriminator = make_discriminator(unet_input_shape)
 
+    # build network for pretrained (frozen) segmentation CNN
+    if segmentation_model_file is not None:
+        segmentation_label_equivalency = np.load(path_segmentation_equivalency)
+        seg_unet_model = nrn_models.unet(nb_features=unet_feat_count,
+                                         input_shape=[*unet_input_shape[:-1], 1],
+                                         nb_levels=n_levels,
+                                         conv_size=conv_size,
+                                         nb_labels=len(segmentation_label_equivalency),
+                                         feat_mult=feat_multiplier,
+                                         nb_conv_per_level=nb_conv_per_level,
+                                         conv_dropout=dropout,
+                                         final_pred_activation='softmax',
+                                         batch_norm=-1,
+                                         activation=activation,
+                                         input_model=None)
+        seg_unet_model.load_weights(segmentation_model_file, by_name=True)
+        seg_unet_model.trainable = False
+        for layer in seg_unet_model.layers:
+            layer.trainable = False
+    else:
+        seg_unet_model = segmentation_label_equivalency = None
+
     # add frozen discriminator to generator for training
     for layer in discriminator.layers:
         layer.trainable = False
@@ -332,14 +358,28 @@ def training(labels_dir,
     generator_out = generator.output
     generator_discriminator_out = discriminator(generator_out)
 
+    # normalise generator output
+    if segmentation_model_file is not None:
+        im = utils.load_volume(utils.list_images_in_folder(images_dir)[0], im_only=True)
+        m = np.percentile(im, 2)
+        M = np.percentile(im, 98)
+        input_norm = KL.Lambda(lambda x: (K.clip(x, m, M) - m) / (M - m), name='input_normalized')(generator_out)
+        seg_out = seg_unet_model(input_norm)
+        target_seg = generator.get_layer('segmentation_target').output
+        use_seg = True
+    else:
+        seg_out = target_seg = None
+        use_seg = False
+
     # add loss computation to model, because the real image is modified (= cropped) inside the generation model,
-    # loss = 0.999 l1_loss + 0.001 wasserstein_loss
     target = generator.get_layer('regression_target').output
-    gen_loss = build_generator_loss(target, generator_out, generator_discriminator_out, loss_cropping)
+    gen_loss = build_generator_loss(target, target_seg, generator_out, generator_discriminator_out, seg_out,
+                                    generation_labels, segmentation_label_equivalency, loss_cropping, use_seg,
+                                    relative_weight_segmentation, relative_weight_discriminator)
 
     # build and compile generator model
     generator_model = models.Model(inputs=generator.inputs, outputs=gen_loss)
-    generator_model.compile(optimizer=Adam(learning_rate=lr, decay=lr_decay), loss=dummy_loss)
+    generator_model.compile(optimizer=Adam(learning_rate=lr_generator, decay=lr_decay), loss=dummy_loss)
 
     # freeze generator when training discriminator
     for layer in discriminator.layers:
@@ -365,11 +405,10 @@ def training(labels_dir,
 
     # create discriminator model
     discriminator_model = models.Model(inputs=generator.inputs, outputs=discr_loss)
-    discriminator_model.compile(optimizer=Adam(learning_rate=lr, decay=lr_decay), loss=dummy_loss)
+    discriminator_model.compile(optimizer=Adam(learning_rate=lr_discriminator, decay=lr_decay), loss=dummy_loss)
 
     # training loop
     le = len(str(epochs))
-    ls = len(str(steps_per_epoch))
     discriminator_logs = np.array([])
     generator_logs = np.array([])
     for epoch in range(epochs):
@@ -380,18 +419,21 @@ def training(labels_dir,
         for step in range(int(steps_per_epoch)):
 
             # take several training steps for discriminator
-            tmp_training_ratio = 1000 if (epoch == 0) & (step == 0) else training_ratio
+            tmp_training_ratio = first_training_ratio if (epoch == 0) & (step == 0) else training_ratio
+            lt = len(str(tmp_training_ratio))
             for j in range(tmp_training_ratio):
                 training_inputs, dummy_y = next(input_generator)
                 discr_loss = discriminator_model.train_on_batch(training_inputs, dummy_y)
                 avg_discr_loss += (discr_loss / (steps_per_epoch * tmp_training_ratio))
-                print('{0:0{1}d}/{2}   discriminator loss:   {3}'.format(step+1, ls, steps_per_epoch, discr_loss))
+                print('Step {0:0{1}d}/{2} ({3:0{4}d}/{5})  discriminator loss:  {6}'.format(
+                    step + 1, len(str(steps_per_epoch)), steps_per_epoch, j+1, lt, tmp_training_ratio, discr_loss))
 
             # take a step in generator
             training_inputs, dummy_y = next(input_generator)
             gen_loss = generator_model.train_on_batch(training_inputs, dummy_y)
             avg_gen_loss += (gen_loss / steps_per_epoch)
-            print('{0:0{1}d}/{2}   generator loss:       {3}'.format(step + 1, ls, steps_per_epoch, gen_loss))
+            print('Step {0:0{1}d}/{2}  generator loss:  {3}'.format(
+                step + 1, len(str(steps_per_epoch)), steps_per_epoch, gen_loss))
 
         # print and save epoch metrics
         print('Epoch {0:0{1}d}/{2}   average discriminator loss:   {3}'.format(epoch + 1, le, epochs, avg_discr_loss))
@@ -423,7 +465,7 @@ def make_discriminator(input_shape, n_filters=32, n_levels=4):
     # output without activation
     last_tensor = KL.Dense(1, activation=None)(last_tensor)
 
-    return models.Model(input_tensor, last_tensor)
+    return models.Model(input_tensor, last_tensor, name='discriminator')
 
 
 def discriminator_block(layer_input, filters, strides):
@@ -432,7 +474,9 @@ def discriminator_block(layer_input, filters, strides):
     return d
 
 
-def build_generator_loss(target, generator_output, generator_discriminator_output, loss_cropping=16):
+def build_generator_loss(target, target_seg, generator_output, generator_discriminator_output, seg_out,
+                         generation_labels, segmentation_equivalency, loss_cropping, use_seg,
+                         dice_weight, discr_weight):
 
     # crop tensors to compute loss only in the middle
     if loss_cropping is not None:
@@ -450,11 +494,50 @@ def build_generator_loss(target, generator_output, generator_discriminator_outpu
         generator_output = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + idx + [0], dtype='int32'),
                                      size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
                                      name='cropping_pred')(generator_output)
+        if use_seg:
+            target_seg = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + idx + [0], dtype='int32'),
+                                   size=tf.convert_to_tensor([-1] + loss_cropping + [-1],  dtype='int32')),
+                                   name='cropping_seg_gt')(target_seg)
+            seg_out = KL.Lambda(lambda x: tf.slice(x, begin=tf.convert_to_tensor([0] + idx + [0], dtype='int32'),
+                                size=tf.convert_to_tensor([-1] + loss_cropping + [-1], dtype='int32')),
+                                name='cropping_seg_pred')(seg_out)
 
-    # create loss for generator
+    # compute L1 and wasserstein losses
     l1_loss = KL.Lambda(lambda x: K.mean(K.abs(x[0] - x[1])), name='L1_loss')([target, generator_output])
     w_loss = KL.Lambda(lambda x: K.mean(-x), name='w_loss')(generator_discriminator_output)
-    generator_loss = KL.Lambda(lambda x: 0.999 * x[0] + 0.001 * x[1], name='gen_loss')([l1_loss, w_loss])
+
+    # compute segmentation loss if necessary
+    if use_seg:
+        gt_onehot = list()
+        pred_onehot = list()
+        for ll in generation_labels:
+            idx = np.where(segmentation_equivalency == ll)[0]
+            if len(idx) > 0:
+                tensor = KL.Lambda(lambda x: tf.cast(x[..., -1] == ll, dtype='float32'))(target_seg)
+                gt_onehot.append(tensor)
+                if len(idx) == 1:
+                    tensor2 = KL.Lambda(lambda x: x[..., idx[0]])(seg_out)
+                elif len(idx) == 2:
+                    tensor2 = KL.Lambda(lambda x: x[..., idx[0]] + x[..., idx[1]])(seg_out)
+                elif len(idx) == 3:
+                    tensor2 = KL.Lambda(lambda x: x[..., idx[0]] + x[..., idx[1]] + x[..., idx[2]])(seg_out)
+                else:
+                    raise Exception("uuummm weird that you're merging so many labels...")
+                pred_onehot.append(tensor2)
+        gt = KL.Lambda(lambda x: tf.stack(x, -1), name='gt')(gt_onehot)
+        pred = KL.Lambda(lambda x: tf.stack(x, -1), name='pred')(pred_onehot)
+        dice_loss = layers.DiceLoss(enable_checks=False, name='dice_loss')([gt, pred])
+    else:
+        dice_loss = None
+
+    # add all losses
+    l1_weight = 1 - discr_weight
+    if use_seg:
+        l1_weight -= dice_weight
+        generator_loss = KL.Lambda(lambda x: l1_weight * x[0] + discr_weight * x[1] + dice_weight * x[2],
+                                   name='gen_loss')([l1_loss, w_loss, dice_loss])
+    else:
+        generator_loss = KL.Lambda(lambda x: l1_weight * x[0] + discr_weight * x[1], name='gen_loss')([l1_loss, w_loss])
 
     return generator_loss
 

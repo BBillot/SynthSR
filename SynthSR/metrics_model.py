@@ -201,12 +201,11 @@ def add_seg_loss_to_model(input_model,
             else:
                 raise Exception("uuummm weird that you're merging so many labels...")
             pred_onehot.append(tensor2)
-
     gt = KL.Lambda(lambda x: tf.stack(x, -1), name='gt')(gt_onehot) if len(gt_onehot) > 1 else gt_onehot[0]
     pred = KL.Lambda(lambda x: tf.stack(x, -1), name='pred')(pred_onehot) if len(pred_onehot) > 1 else pred_onehot[0]
 
     # Dice loss: it's crucial to disable the checks, so we can use incomplete segmentations
-    dice_loss = layers.DiceLoss(enable_checks=False)([gt, pred], name='dice_loss')
+    dice_loss = layers.DiceLoss(enable_checks=False, name='dice_loss')([gt, pred])
 
     total_loss = KL.Lambda(lambda x: x[0] + rel_weight * x[1])([image_loss, dice_loss])
 

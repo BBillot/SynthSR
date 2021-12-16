@@ -42,8 +42,6 @@ def training(labels_dir,
              path_generation_labels,
              path_segmentation_equivalency=None,
              segmentation_model_file=None,
-             relative_weight_segmentation=0.25,
-             relative_weight_discriminator=0.01,
              prior_distributions='normal',
              path_generation_classes=None,
              FS_sort=True,
@@ -76,17 +74,19 @@ def training(labels_dir,
              feat_multiplier=2,
              dropout=0,
              activation='elu',
-             lr_generator=1e-4,
-             lr_discriminator=1e-4,
              lr_decay=0,
              epochs=100,
              steps_per_epoch=1000,
-             first_training_ratio=100,
-             training_ratio=5,
              work_with_residual_channel=None,
              loss_cropping=None,
+             lr_generator=1e-4,
+             lr_discriminator=1e-4,
+             relative_weight_segmentation=0.25,
+             relative_weight_discriminator=0.01,
              checkpoint_generator=None,
-             gradient_penalty_weight=10):
+             gradient_penalty_weight=10,
+             first_training_ratio=100,
+             training_ratio=10):
     """
     This function trains a Unet to do slice imputation (and possibly synthesis) of MRI images with thick slices,
     using synthetic scans and possibly real scans.
@@ -209,20 +209,27 @@ def training(labels_dir,
     :param activation: (optional) activation function. Can be 'elu', 'relu'.
 
     # ----------------------------------------------- Training parameters ----------------------------------------------
-    :param lr: (optional) learning rate for the training. Default is 1e-4
     :param lr_decay: (optional) learing rate decay. Default is 0, where no decay is applied.
     :param epochs: (optional) number of epochs.
     :param steps_per_epoch: (optional) number of steps per epoch. Default is 1000. Since no online validation is
     possible, this is equivalent to the frequency at which the models are saved.
-    :param training_ratio: (optional) number of discriminator iterations to take at each training step (whereas the
-    generator is only iterated once per step). This doesn't apply to the first step of the first epoch, where the
-    discriminator is trained for 1,000 iterations. Default is 10.
     :param work_with_residual_channel: (optional) if you have a channel that is similar to the output (e.g., in
     imputation), it is convenient to predict the residual, rather than the image from scratch. This parameter is a list
     of indices of the synthetic channels you want to add the residual to (must have the same length as output_channels,
     or have length equal to 1 if real images are used)
     :param loss_cropping: (option)  to crop the posteriors when evaluating the loss function (specify the output size
     Can be an int, or the path to a 1d numpy array.
+
+    # ------------------------------------------------- new parameters -------------------------------------------------
+    :param lr_generator
+    :param lr_discriminator
+    :param relative_weight_segmentation
+    :param relative_weight_discriminator: weight of the wasserstein loss when computing the generator loss
+    :param gradient_penalty_weight; weight of the gp when computing the discriminator loss
+    :param training_ratio: (optional) number of discriminator iterations to take at each training step (whereas the
+    generator is only iterated once per step). This doesn't apply to the first step of the first epoch. Default is 10.
+    :param first_training_ratio: same as above but for the very first step of the firt epoch.
+    Usually higher than training ratio.
     """
 
     n_channels = len(utils.reformat_to_list(input_channels))
@@ -305,11 +312,11 @@ def training(labels_dir,
     # input generator
     input_generator = utils.build_training_generator(brain_generator.model_inputs_generator, batchsize)
 
-    # transformation model
-    labels_to_image_model = brain_generator.labels_to_image_model
-    unet_input_shape = brain_generator.model_output_shape
+    # ------------------ we create the three modules: generator, discriminator, segmentation net -------------------
 
     # generator model
+    labels_to_image_model = brain_generator.labels_to_image_model
+    unet_input_shape = brain_generator.model_output_shape
     generator = nrn_models.unet(nb_features=unet_feat_count,
                                  input_shape=unet_input_shape,
                                  nb_levels=n_levels,
@@ -351,6 +358,8 @@ def training(labels_dir,
     else:
         seg_unet_model = segmentation_label_equivalency = None
 
+    # ------------------ now that all 3 modules are created, we build the generator training model -------------------
+
     # add frozen discriminator to generator for training
     for layer in discriminator.layers:
         layer.trainable = False
@@ -381,6 +390,8 @@ def training(labels_dir,
     generator_model = models.Model(inputs=generator.inputs, outputs=gen_loss)
     generator_model.compile(optimizer=Adam(learning_rate=lr_generator, decay=lr_decay), loss=dummy_loss)
 
+    # ------------------ now we build the discriminator training model -------------------
+
     # freeze generator when training discriminator
     for layer in discriminator.layers:
         layer.trainable = True
@@ -406,6 +417,8 @@ def training(labels_dir,
     # create discriminator model
     discriminator_model = models.Model(inputs=generator.inputs, outputs=discr_loss)
     discriminator_model.compile(optimizer=Adam(learning_rate=lr_discriminator, decay=lr_decay), loss=dummy_loss)
+
+    # ------------------ now we train -------------------
 
     # training loop
     le = len(str(epochs))

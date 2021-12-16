@@ -92,7 +92,7 @@ def build_model_inputs(path_label_maps,
             list_label_maps.append(utils.add_axis(lab, axis=[0, -1]))
 
             if path_images is not None:
-                im = utils.load_volume(path_images[idx], dtype='float')
+                im = utils.load_volume(path_images[idx], dtype='float', aff_ref=np.eye(4))
                 list_images.append(im[np.newaxis, :, :, :, np.newaxis])
 
             # add means and standard deviations to inputs

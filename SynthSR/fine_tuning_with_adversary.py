@@ -86,7 +86,8 @@ def training(labels_dir,
              checkpoint_generator=None,
              gradient_penalty_weight=10,
              first_training_ratio=100,
-             training_ratio=10):
+             training_ratio=10,
+             labels_to_mask=None):
     """
     This function trains a Unet to do slice imputation (and possibly synthesis) of MRI images with thick slices,
     using synthetic scans and possibly real scans.
@@ -230,6 +231,8 @@ def training(labels_dir,
     generator is only iterated once per step). This doesn't apply to the first step of the first epoch. Default is 10.
     :param first_training_ratio: same as above but for the very first step of the firt epoch.
     Usually higher than training ratio.
+    :param labels_to_mask: 1d numpy array as long as generation_labels, with 1 for structures to keep for the
+    discriminator, and 0 to remove (typically extra-cerebral regions)
     """
 
     n_channels = len(utils.reformat_to_list(input_channels))
@@ -334,7 +337,8 @@ def training(labels_dir,
         generator.load_weights(checkpoint_generator, by_name=True)
 
     # discriminator model
-    discriminator = make_discriminator(unet_input_shape)
+    mask_input = labels_to_mask is not None
+    discriminator = make_discriminator(unet_input_shape, mask_input=mask_input)
 
     # build network for pretrained (frozen) segmentation CNN
     if segmentation_model_file is not None:
@@ -365,7 +369,13 @@ def training(labels_dir,
         layer.trainable = False
     discriminator.trainable = False
     generator_out = generator.output
-    generator_discriminator_out = discriminator(generator_out)
+    if mask_input:
+        labels_to_mask = utils.load_array_if_path(labels_to_mask)
+        target_seg = generator.get_layer('segmentation_target').output
+        mask = layers.ConvertLabels(generation_labels, labels_to_mask, name='mask')(target_seg)
+        generator_discriminator_out = discriminator([generator_out, mask])
+    else:
+        generator_discriminator_out = discriminator(generator_out)
 
     # normalise generator output
     if segmentation_model_file is not None:
@@ -406,9 +416,16 @@ def training(labels_dir,
     averaged_samples = RandomWeightedAverage()([target, generated_samples_for_discriminator])
 
     # define discriminator outputs
-    discriminator_real = discriminator(target)
-    discriminator_fake = discriminator(generated_samples_for_discriminator)
-    discriminator_av = discriminator(averaged_samples)
+    if mask_input:
+        target_seg = generator.get_layer('segmentation_target').output
+        mask = layers.ConvertLabels(generation_labels, labels_to_mask, name='mask')(target_seg)
+        discriminator_real = discriminator([target, mask])
+        discriminator_fake = discriminator([generated_samples_for_discriminator, mask])
+        discriminator_av = discriminator([averaged_samples, mask])
+    else:
+        discriminator_real = discriminator(target)
+        discriminator_fake = discriminator(generated_samples_for_discriminator)
+        discriminator_av = discriminator(averaged_samples)
 
     # add discriminator loss to model
     discr_loss = build_discriminator_loss(discriminator_real, discriminator_fake, discriminator_av,
@@ -462,10 +479,14 @@ def training(labels_dir,
         discriminator_model.save(os.path.join(model_dir, 'discriminator_{0:0{1}d}.h5'.format(epoch + 1, le)))
 
 
-def make_discriminator(input_shape, n_filters=32, n_levels=4):
+def make_discriminator(input_shape, n_filters=32, n_levels=4, mask_input=False):
 
     input_tensor = KL.Input(shape=input_shape, name='input_discriminator')
-    last_tensor = input_tensor
+    if mask_input:
+        input_tensor = [input_tensor, KL.Input(shape=input_shape, name='input_mask')]
+        last_tensor = KL.Lambda(lambda x: x[0] * tf.cast(x[1], dtype=x[0].dtype))(input_tensor)
+    else:
+        last_tensor = input_tensor
 
     for level in range(n_levels):
         last_tensor = discriminator_block(last_tensor, n_filters * (2 ** level), strides=1)

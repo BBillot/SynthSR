@@ -34,10 +34,10 @@ where:
 This can also be a folder, in which case all the image inside that folder will be processed.
 - `<output>` is the path where the synthetic 1 mm MP-RAGE will be saved. \
 This must be a folder if `<input>` designates a folder.
-- `<--cpu>` (optional) run on the CPU rather than the GPU.
-- `<--threads N>` (optional) number of threads to use when using CPU. The default is just 1, 
+- `--cpu` (optional) run on the CPU rather than the GPU.
+- `--threads N` (optional) number of threads to use when using CPU. The default is just 1, 
 so crank it up for faster processing if you are using the CPU version and have multiple cores!
-- `<--ct>` (optional) Use this flag when processing CT scans (details below).
+- `--ct` (optional) Use this flag when processing CT scans (details below).
 
 The synthetic 1mm MP-RAGE will be of a standard contrast, bias field corrected, and with white matter lesions inpainted.
 

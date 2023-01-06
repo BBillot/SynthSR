@@ -79,6 +79,7 @@ def unet(nb_features,
          padding='same',
          dilation_rate_mult=1,
          activation='elu',
+         skip_n_concatenations=0,
          use_residuals=False,
          final_pred_activation='softmax',
          nb_conv_per_level=1,
@@ -112,6 +113,8 @@ def unet(nb_features,
             e.g. feat_mult of 2 and nb_features of 16 would yield 32 features in the 
             second layer, 64 features in the third layer, etc
         pool_size (default: 2): max pooling size (integer or list if specifying per dimension)
+        skip_n_concatenations=0: enabled to skip concatenation links between contracting and expanding paths for the n
+            top levels.
         use_logp:
         padding:
         dilation_rate_mult:
@@ -170,6 +173,7 @@ def unet(nb_features,
                          feat_mult=feat_mult,
                          pool_size=pool_size,
                          use_skip_connections=True,
+                         skip_n_concatenations=skip_n_concatenations,
                          padding=padding,
                          dilation_rate_mult=dilation_rate_mult,
                          activation=activation,
@@ -218,7 +222,8 @@ def ae(nb_features,
        include_mu_shift_layer=False,
        single_model=False,  # whether to return a single model, or a tuple of models that can be stacked.
        final_pred_activation='softmax',
-       do_vae=False):
+       do_vae=False,
+       input_model=None):
     """
     Convolutional Auto-Encoder.
     Optionally Variational.
@@ -257,7 +262,8 @@ def ae(nb_features,
                          use_residuals=use_residuals,
                          nb_conv_per_level=nb_conv_per_level,
                          conv_dropout=conv_dropout,
-                         batch_norm=batch_norm)
+                         batch_norm=batch_norm,
+                         input_model=input_model)
 
     # middle AE structure
     if single_model:
@@ -353,8 +359,6 @@ def conv_enc(nb_features,
         last_tensor = input_model.outputs
         if isinstance(last_tensor, list):
             last_tensor = last_tensor[0]
-        last_tensor = KL.Reshape(input_shape)(last_tensor)
-        input_shape = last_tensor.shape.as_list()[1:]
 
     # volume size data
     ndims = len(input_shape) - 1
@@ -440,6 +444,7 @@ def conv_dec(nb_features,
              feat_mult=1,
              pool_size=2,
              use_skip_connections=False,
+             skip_n_concatenations=0,
              padding='same',
              dilation_rate_mult=1,
              activation='elu',
@@ -505,7 +510,7 @@ def conv_dec(nb_features,
         up_tensor = last_tensor
 
         # merge layers combining previous layer
-        if use_skip_connections:
+        if use_skip_connections & (level < (nb_levels - skip_n_concatenations - 1)):
             conv_name = '%s_conv_downarm_%d_%d' % (prefix, nb_levels - 2 - level, nb_conv_per_level - 1)
             cat_tensor = input_model.get_layer(conv_name).output
             name = '%s_merge_%d' % (prefix, nb_levels + level)
@@ -682,7 +687,7 @@ def single_ae(enc_size,
     # if want to go through a dense layer in the middle of the U, need to:
     # - flatten last layer if not flat
     # - do dense encoding and decoding
-    # - unflatten (rehsape spatially) at end
+    # - unflatten (reshape spatially) at end
     if ae_type == 'dense' and len(input_shape) > 1:
         name = '%s_ae_%s_down_flat' % (prefix, ae_type)
         last_tensor = KL.Flatten(name=name)(last_tensor)

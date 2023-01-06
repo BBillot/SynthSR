@@ -14,7 +14,7 @@ Copyright 2020 Benjamin Billot
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
 compliance with the License. You may obtain a copy of the License at
-http://www.apache.org/licenses/LICENSE-2.0
+https://www.apache.org/licenses/LICENSE-2.0
 Unless required by applicable law or agreed to in writing, software distributed under the License is
 distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 implied. See the License for the specific language governing permissions and limitations under the
@@ -43,8 +43,9 @@ def blurring_sigma_for_downsampling(current_res, downsample_res, mult_coef=None,
     :param downsample_res: resolution to downsample to. Can be a 1d numpy array or list, or a tensor.
     :param current_res: resolution of the volume before downsampling.
     Can be a 1d numpy array or list or tensor of the same length as downsample res.
+    :param mult_coef: (optional) multiplicative coefficient for the blurring kernel. Default is 0.75.
     :param thickness: (optional) slice thickness in each dimension. Must be the same type as downsample_res.
-    :return: standard deviation of the blurring masks given as as the same type as downsample_res (list or tensor).
+    :return: standard deviation of the blurring masks given as the same type as downsample_res (list or tensor).
     """
 
     if not tf.is_tensor(downsample_res):
@@ -180,6 +181,79 @@ def gaussian_kernel(sigma, max_sigma=None, blur_range=None, separable=True):
     return kernels
 
 
+def sobel_kernels(n_dims):
+    """Returns sobel kernels to compute spatial derivative on image of n dimensions."""
+
+    in_dir = tf.convert_to_tensor([1, 0, -1], dtype='float32')
+    orthogonal_dir = tf.convert_to_tensor([1, 2, 1], dtype='float32')
+    comb = np.array(list(combinations(list(range(n_dims)), n_dims - 1))[::-1])
+
+    list_kernels = list()
+    for dim in range(n_dims):
+
+        sublist_kernels = list()
+        for axis in range(n_dims):
+
+            kernel = in_dir if axis == dim else orthogonal_dir
+            for i in comb[axis]:
+                kernel = tf.expand_dims(kernel, axis=i)
+            sublist_kernels.append(tf.expand_dims(tf.expand_dims(kernel, -1), -1))
+
+        list_kernels.append(sublist_kernels)
+
+    return list_kernels
+
+
+def unit_kernel(dist_threshold, n_dims, max_dist_threshold=None):
+    """Build kernel with values of 1 for voxel at a distance < dist_threshold from the center, and 0 otherwise.
+    The outputs are given as tensorflow tensors.
+    :param dist_threshold: maximum distance from the center until voxel will have a value of 1. Can be a tensor of size
+    (batch_size, 1), or a float.
+    :param n_dims: dimension of the kernel to return (excluding batch and channel dimensions).
+    :param max_dist_threshold: if distance_threshold is a tensor, max_dist_threshold must be given. It represents the
+    maximum value that will be passed to dist_threshold. Must be a float.
+    """
+
+    # convert dist_threshold into a tensor
+    if not tf.is_tensor(dist_threshold):
+        dist_threshold_tens = tf.convert_to_tensor(utils.reformat_to_list(dist_threshold), dtype='float32')
+    else:
+        assert max_dist_threshold is not None, 'max_sigma must be provided when dist_threshold is given as a tensor'
+        dist_threshold_tens = tf.cast(dist_threshold, 'float32')
+    shape = dist_threshold_tens.get_shape().as_list()
+
+    # get batchsize
+    batchsize = None if shape[0] is not None else tf.split(tf.shape(dist_threshold_tens), [1, -1])[0]
+
+    # set max_dist_threshold into an array
+    if max_dist_threshold is None:  # dist_threshold is fixed (i.e. dist_threshold will not change at each mini-batch)
+        max_dist_threshold = dist_threshold
+
+    # get size of blurring kernels
+    windowsize = np.array([max_dist_threshold * 2 + 1]*n_dims, dtype='int32')
+
+    # build tensor representing the distance from the centre
+    mesh = [tf.cast(f, 'float32') for f in volshape_to_meshgrid(windowsize, indexing='ij')]
+    dist = tf.stack([mesh[f] - (windowsize[f] - 1) / 2 for f in range(len(windowsize))], axis=-1)
+    dist = tf.sqrt(tf.reduce_sum(tf.square(dist), axis=-1))
+
+    # replicate distance to batch size and reshape sigma_tens
+    if batchsize is not None:
+        dist = tf.tile(tf.expand_dims(dist, axis=0),
+                       tf.concat([batchsize, tf.ones(tf.shape(tf.shape(dist)), dtype='int32')], axis=0))
+        for i in range(n_dims - 1):
+            dist_threshold_tens = tf.expand_dims(dist_threshold_tens, axis=1)
+    else:
+        for i in range(n_dims - 1):
+            dist_threshold_tens = tf.expand_dims(dist_threshold_tens, axis=0)
+
+    # build final kernel by thresholding distance tensor
+    kernel = tf.where(tf.less_equal(dist, dist_threshold_tens), tf.ones_like(dist), tf.zeros_like(dist))
+    kernel = tf.expand_dims(tf.expand_dims(kernel, -1), -1)
+
+    return kernel
+
+
 def resample_tensor(tensor,
                     resample_shape,
                     interp_method='linear',
@@ -225,7 +299,7 @@ def resample_tensor(tensor,
             tensor = nrn_layers.Resize(size=downsample_shape, interp_method='nearest')(tensor)
 
     # resample image at target resolution
-    if resample_shape != downsample_shape:  # if we didn't dowmsample downsample_shape = tensor_shape
+    if resample_shape != downsample_shape:  # if we didn't downsample downsample_shape = tensor_shape
         tensor._keras_shape = tuple(tensor.get_shape().as_list())
         tensor = nrn_layers.Resize(size=resample_shape, interp_method=interp_method)(tensor)
 

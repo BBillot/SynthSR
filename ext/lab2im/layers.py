@@ -16,6 +16,8 @@ This file regroups several custom keras layers used in the generation model:
     - ConvertLabels,
     - PadAroundCentre,
     - MaskEdges
+    - ImageGradients
+    - RandomDilationErosion
 
 
 If you use this code, please cite the first SynthSeg paper:
@@ -25,7 +27,7 @@ Copyright 2020 Benjamin Billot
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
 compliance with the License. You may obtain a copy of the License at
-http://www.apache.org/licenses/LICENSE-2.0
+https://www.apache.org/licenses/LICENSE-2.0
 Unless required by applicable law or agreed to in writing, software distributed under the License is
 distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 implied. See the License for the specific language governing permissions and limitations under the
@@ -73,11 +75,11 @@ class RandomSpatialDeformation(Layer):
     :param shearing_bounds: (optional) same as scaling bounds. Default is shearing_bounds = 0.012.
     :param translation_bounds: (optional) same as scaling bounds. Default is translation_bounds = False, but we
     encourage using it when cropping is deactivated (i.e. when output_shape=None in BrainGenerator).
-    :param enable_90_rotations: (optional) wheter to rotate the input by a random angle chosen in {0, 90, 180, 270}.
+    :param enable_90_rotations: (optional) whether to rotate the input by a random angle chosen in {0, 90, 180, 270}.
     This is done regardless of the value of rotation_bounds. If true, a different value is sampled for each dimension.
     :param nonlin_std: (optional) maximum value of the standard deviation of the normal distribution from which we
     sample the small-size SVF. Set to 0 if you wish to completely turn the elastic deformation off.
-    :param nonlin_shape_factor: (optional) if nonlin_std is not False, factor between the shapes of the input tensor
+    :param nonlin_scale: (optional) if nonlin_std is not False, factor between the shapes of the input tensor
     and the shape of the input non-linear tensor.
     :param inter_method: (optional) interpolation method when deforming the input tensor. Can be 'linear', or 'nearest'
     """
@@ -89,8 +91,9 @@ class RandomSpatialDeformation(Layer):
                  translation_bounds=False,
                  enable_90_rotations=False,
                  nonlin_std=4.,
-                 nonlin_shape_factor=.0625,
+                 nonlin_scale=.0625,
                  inter_method='linear',
+                 prob_deform=1,
                  **kwargs):
 
         # shape attributes
@@ -106,13 +109,14 @@ class RandomSpatialDeformation(Layer):
         self.translation_bounds = translation_bounds
         self.enable_90_rotations = enable_90_rotations
         self.nonlin_std = nonlin_std
-        self.nonlin_shape_factor = nonlin_shape_factor
+        self.nonlin_scale = nonlin_scale
 
         # boolean attributes
         self.apply_affine_trans = (self.scaling_bounds is not False) | (self.rotation_bounds is not False) | \
                                   (self.shearing_bounds is not False) | (self.translation_bounds is not False) | \
                                   self.enable_90_rotations
         self.apply_elastic_trans = self.nonlin_std > 0
+        self.prob_deform = prob_deform
 
         # interpolation methods
         self.inter_method = inter_method
@@ -127,8 +131,9 @@ class RandomSpatialDeformation(Layer):
         config["translation_bounds"] = self.translation_bounds
         config["enable_90_rotations"] = self.enable_90_rotations
         config["nonlin_std"] = self.nonlin_std
-        config["nonlin_shape_factor"] = self.nonlin_shape_factor
+        config["nonlin_scale"] = self.nonlin_scale
         config["inter_method"] = self.inter_method
+        config["prob_deform"] = self.prob_deform
         return config
 
     def build(self, input_shape):
@@ -143,7 +148,7 @@ class RandomSpatialDeformation(Layer):
 
         if self.apply_elastic_trans:
             self.small_shape = utils.get_resample_shape(self.inshape[:self.n_dims],
-                                                        self.nonlin_shape_factor, self.n_dims)
+                                                        self.nonlin_scale, self.n_dims)
         else:
             self.small_shape = None
 
@@ -161,7 +166,7 @@ class RandomSpatialDeformation(Layer):
         inputs = [tf.cast(v, dtype='float32') for v in inputs]
         batchsize = tf.split(tf.shape(inputs[0]), [1, self.n_dims + 1])[0]
 
-        # initialise list of transfors to operate
+        # initialise list of transforms to operate
         list_trans = list()
 
         # add affine deformation to inputs list
@@ -192,7 +197,13 @@ class RandomSpatialDeformation(Layer):
 
         # apply deformations and return tensors with correct dtype
         if self.apply_affine_trans | self.apply_elastic_trans:
-            inputs = [nrn_layers.SpatialTransformer(m)([v] + list_trans) for (m, v) in zip(self.inter_method, inputs)]
+            if self.prob_deform == 1:
+                inputs = [nrn_layers.SpatialTransformer(m)([v] + list_trans) for (m, v) in
+                          zip(self.inter_method, inputs)]
+            else:
+                rand_trans = tf.squeeze(K.less(tf.random.uniform([1], 0, 1), self.prob_deform))
+                inputs = [K.switch(rand_trans, nrn_layers.SpatialTransformer(m)([v] + list_trans), v)
+                          for (m, v) in zip(self.inter_method, inputs)]
         return [tf.cast(v, t) for (t, v) in zip(types, inputs)]
 
 
@@ -265,12 +276,12 @@ class RandomFlip(Layer):
     """This function flips the input tensors along the specified axes with a probability of 0.5.
     The input tensors are expected to have shape [batchsize, shape_dim1, ..., shape_dimn, channel].
     If specified, this layer can also swap corresponding values, such that the flip tensors stay consistent with the
-    native spatial orientation (especially when flipping in the righ/left dimension).
+    native spatial orientation (especially when flipping in the right/left dimension).
     :param flip_axis: integer, or list of integers specifying the dimensions along which to flip. The values exclude the
     batch dimension (e.g. 0 will flip the tensor along the first axis after the batch dimension). Default is None, where
     the tensors can be flipped along any of the axes (except batch and channel axes).
-    :param swap_labels: list of booleans to specify wether to swap the values of each input. All the inputs for which
-    the values need to be swapped must have a int32 ot int64 dtype.
+    :param swap_labels: list of booleans to specify whether to swap the values of each input. All the inputs for which
+    the values need to be swapped must have an int32 ot int64 dtype.
     :param label_list: if swap_labels is True, list of all labels contained in labels. Must be ordered as follows, first
      the neutral labels (i.e. non-sided), then left labels and right labels.
     :param n_neutral_labels: if swap_labels is True, number of non-sided labels
@@ -311,7 +322,7 @@ class RandomFlip(Layer):
     This doesn't concern the image input, as its values are not swapped.
     """
 
-    def __init__(self, flip_axis=None, swap_labels=False, label_list=None, n_neutral_labels=None, **kwargs):
+    def __init__(self, flip_axis=None, swap_labels=False, label_list=None, n_neutral_labels=None, prob=0.5, **kwargs):
 
         # shape attributes
         self.several_inputs = True
@@ -321,11 +332,13 @@ class RandomFlip(Layer):
         # axis along which to flip
         self.flip_axis = utils.reformat_to_list(flip_axis)
 
-        # wether to swap labels, and corresponding label list
+        # whether to swap labels, and corresponding label list
         self.swap_labels = utils.reformat_to_list(swap_labels)
         self.label_list = label_list
         self.n_neutral_labels = n_neutral_labels
         self.swap_lut = None
+
+        self.prob = prob
 
         super(RandomFlip, self).__init__(**kwargs)
 
@@ -335,6 +348,7 @@ class RandomFlip(Layer):
         config["swap_labels"] = self.swap_labels
         config["label_list"] = self.label_list
         config["n_neutral_labels"] = self.n_neutral_labels
+        config["prob"] = self.prob
         return config
 
     def build(self, input_shape):
@@ -374,7 +388,8 @@ class RandomFlip(Layer):
 
         # sample boolean for each element of the batch
         batchsize = tf.split(tf.shape(inputs[0]), [1, self.n_dims + 1])[0]
-        rand_flip = K.greater(tf.random.uniform(tf.concat([batchsize, tf.ones(1, dtype='int32')], axis=0), 0, 1), 0.5)
+        rand_flip = K.less(tf.random.uniform(tf.concat([batchsize, tf.ones(1, dtype='int32')], axis=0), 0, 1),
+                           self.prob)
 
         # swap r/l labels if necessary
         swapped_inputs = list()
@@ -413,7 +428,7 @@ class SampleConditionalGMM(Layer):
 
     Layer inputs:
     label_map: input label map of shape [batchsize, shape_dim1, ..., shape_dimn, n_channel].
-    All the values of label_map must be contained in generation_labels, but the input label_map doesn't necesseraly have
+    All the values of label_map must be contained in generation_labels, but the input label_map doesn't necessarily have
     to contain all the values in generation_labels.
     means: tensor containing the mean values of all Gaussian distributions of the GMM.
            It must be of shape [batchsize, N, n_channel], and in the same order as generation label,
@@ -540,7 +555,7 @@ class SampleResolution(Layer):
 
         # check maximum resolutions
         assert ((self.max_res_iso_input is not None) | (self.max_res_aniso_input is not None)), \
-            'at least one of maximinum isotropic or anisotropic resolutions must be provided, received none'
+            'at least one of maximum isotropic or anisotropic resolutions must be provided, received none'
 
         # reformat resolutions as numpy arrays
         self.min_res = np.array(self.min_res)
@@ -554,7 +569,7 @@ class SampleResolution(Layer):
         if self.max_res_aniso_input is not None:
             self.max_res_aniso = np.array(self.max_res_aniso_input)
             assert len(self.min_res) == len(self.max_res_aniso), \
-                'min and anisotopic max resolution must have the same length, ' \
+                'min and anisotropic max resolution must have the same length, ' \
                 'had {} and {}'.format(self.min_res, self.max_res_aniso)
             if np.array_equal(self.min_res, self.max_res_aniso):
                 self.max_res_aniso = None
@@ -636,7 +651,7 @@ class GaussianBlur(Layer):
     :param random_blur_range: (optional) if not None, this introduces a randomness in the blurring kernels, where
     sigma is now multiplied by a coefficient dynamically sampled from a uniform distribution with bounds
     [1/random_blur_range, random_blur_range].
-    :param use_mask: (optional) whether a mask of the input will be provided as an additionnal layer input. This is used
+    :param use_mask: (optional) whether a mask of the input will be provided as an additional layer input. This is used
     to mask the blurred image, and to correct for edge blurring effects.
 
     example 1:
@@ -648,13 +663,13 @@ class GaussianBlur(Layer):
 
     example 3:
     output = GaussianBlur(sigma=0.5, random_blur_range=1.15)(input)
-    will blur the input a different gaussian kernel in each dimension, as each dimension will be associated with a
+    will blur the input a different gaussian kernel in each dimension, as each dimension will be associated with
     a kernel, whose standard deviation will be uniformly sampled from [0.5/1.15; 0.5*1.15].
 
     example 4:
     output = GaussianBlur(sigma=0.5, use_mask=True)([input, mask])
     will 1) blur the input a different gaussian kernel in each dimension, 2) mask the blurred image with the provided
-    mask, and 3) correct for edge blurring effects. If the provided mask is not of boolean type, it will thresholded
+    mask, and 3) correct for edge blurring effects. If the provided mask is not of boolean type, it will be thresholded
     above positive values.
     """
 
@@ -754,7 +769,7 @@ class DynamicGaussianBlur(Layer):
 
     example:
     blurred_image = DynamicGaussianBlur(max_sigma=[5.]*3, random_blurring_range=1.15)([image, sigma])
-    will return a blurred version of image, where the standard deviation of each dimension (given as an tensor, and with
+    will return a blurred version of image, where the standard deviation of each dimension (given as a tensor, and with
     values lower than 5 for each axis) is multiplied by a random coefficient uniformly sampled from [1/1.15; 1.15].
     """
 
@@ -818,7 +833,7 @@ class MimicAcquisition(Layer):
 
     :param volume_res: resolution of the provided inputs. Must be a 1-D numpy array with n_dims elements.
     :param min_subsample_res: lower bound of the acquisition resolutions to mimic (i.e. the input resolution must have
-    values higher than min-subseample_res).
+    values higher than min-subsample_res).
     :param resample_shape: shape of the output tensor
     :param build_dist_map: whether to return distance maps as outputs. These indicate the distance between each voxel
     and the nearest non-interpolated voxel (during the second resampling).
@@ -843,7 +858,7 @@ class MimicAcquisition(Layer):
     resample_shape = [128, 128, 128]
     output = MimicAcquisition(im_res, low_res, resample_shape)([image, res])
     output will be a tensor of shape (None, 128, 128, 128, 1), obtained by downsampling each examples of the batch to
-    the matching resolution in res, and resanpling them all to half the initial resolution.
+    the matching resolution in res, and resampling them all to half the initial resolution.
     Note that the provided res must have higher values than min_low_res.
     """
 
@@ -881,7 +896,7 @@ class MimicAcquisition(Layer):
 
     def build(self, input_shape):
 
-        # set up input shape and acquisistion shape
+        # set up input shape and acquisition shape
         self.inshape = input_shape[0][1:]
         self.n_channels = input_shape[0][-1]
         self.add_batchsize = False if (input_shape[1][0] is None) else True
@@ -970,17 +985,17 @@ class BiasFieldCorruption(Layer):
     1) we first sample a value for the standard deviation of a centred normal distribution
     2) a small-size SVF is sampled from this normal distribution
     3) the small SVF is then resized with trilinear interpolation to image size
-    4) it is rescaled to postive values by taking the voxel-wise exponential
+    4) it is rescaled to positive values by taking the voxel-wise exponential
     5) it is multiplied to the input tensor.
     The input tensor is expected to have shape [batchsize, shape_dim1, ..., shape_dimn, channel].
 
     :param bias_field_std: maximum value of the standard deviation sampled in 1 (it will be sampled from the range
     [0, bias_field_std])
-    :param bias_shape_factor: ratio between the shape of the input tensor and the shape of the sampled SVF.
+    :param bias_scale: ratio between the shape of the input tensor and the shape of the sampled SVF.
     :param same_bias_for_all_channels: whether to apply the same bias field to all the channels of the input tensor.
     """
 
-    def __init__(self, bias_field_std=.5, bias_shape_factor=.025, same_bias_for_all_channels=False, **kwargs):
+    def __init__(self, bias_field_std=.5, bias_scale=.025, same_bias_for_all_channels=False, **kwargs):
 
         # input shape
         self.several_inputs = False
@@ -994,7 +1009,7 @@ class BiasFieldCorruption(Layer):
 
         # bias field parameters
         self.bias_field_std = bias_field_std
-        self.bias_shape_factor = bias_shape_factor
+        self.bias_scale = bias_scale
         self.same_bias_for_all_channels = same_bias_for_all_channels
 
         super(BiasFieldCorruption, self).__init__(**kwargs)
@@ -1002,7 +1017,7 @@ class BiasFieldCorruption(Layer):
     def get_config(self):
         config = super().get_config()
         config["bias_field_std"] = self.bias_field_std
-        config["bias_shape_factor"] = self.bias_shape_factor
+        config["bias_scale"] = self.bias_scale
         config["same_bias_for_all_channels"] = self.same_bias_for_all_channels
         return config
 
@@ -1019,7 +1034,7 @@ class BiasFieldCorruption(Layer):
 
         # sampling shapes
         self.std_shape = [1] * (self.n_dims + 1)
-        self.small_bias_shape = utils.get_resample_shape(self.inshape[0][1:self.n_dims + 1], self.bias_shape_factor, 1)
+        self.small_bias_shape = utils.get_resample_shape(self.inshape[0][1:self.n_dims + 1], self.bias_scale, 1)
         if not self.same_bias_for_all_channels:
             self.std_shape[-1] = self.n_channels
             self.small_bias_shape[-1] = self.n_channels
@@ -1065,7 +1080,7 @@ class IntensityAugmentation(Layer):
     from the range [0, noise_std]). Set to 0 to skip this step.
     :param clip: clip the input tensor between the given values. Can either be: a number (in which case we clip between
     0 and the given value), or a list or a numpy array with two elements. Default is 0, where no clipping occurs.
-    :param normalise: whether to apply min-max normalistion, to normalise between 0 and 1. Default is True.
+    :param normalise: whether to apply min-max normalisation, to normalise between 0 and 1. Default is True.
     :param norm_perc: percentiles of the sorted intensity values to take for robust normalisation. Can either be:
     a number (in which case the robust minimum is the provided percentile of sorted values, and the maximum is the
     1 - norm_perc percentile), or a list/numpy array of 2 elements (percentiles for the minimum and maximum values).
@@ -1073,11 +1088,13 @@ class IntensityAugmentation(Layer):
     Default is 0, where we simply take the minimum and maximum values.
     :param gamma_std: standard deviation of the normal distribution from which we sample gamma (in log domain).
     Default is 0, where no gamma augmentation occurs.
+    :param contrast_inversion: whether to perform contrast inversion (i.e. 1 - x). If True, this is performed randomly
+    for each element of the batch, as well as for each channel.
     :param separate_channels: whether to augment all channels separately. Default is True.
     """
 
-    def __init__(self, noise_std=0, clip=0, normalise=True, norm_perc=0, gamma_std=0, separate_channels=True,
-                 **kwargs):
+    def __init__(self, noise_std=0, clip=0, normalise=True, norm_perc=0, gamma_std=0, contrast_inversion=False,
+                 separate_channels=True, **kwargs):
 
         # shape attributes
         self.n_dims = None
@@ -1095,6 +1112,7 @@ class IntensityAugmentation(Layer):
         self.perc = None
         self.gamma_std = gamma_std
         self.separate_channels = separate_channels
+        self.contrast_inversion = contrast_inversion
 
         super(IntensityAugmentation, self).__init__(**kwargs)
 
@@ -1133,7 +1151,7 @@ class IntensityAugmentation(Layer):
 
         # prepare shape for sampling the noise and gamma std dev (depending on whether we augment channels separately)
         batchsize = tf.split(tf.shape(inputs), [1, -1])[0]
-        if (self.noise_std > 0) | (self.gamma_std > 0):
+        if (self.noise_std > 0) | (self.gamma_std > 0) | self.contrast_inversion:
             sample_shape = tf.concat([batchsize, tf.ones([self.n_dims], dtype='int32')], 0)
             if self.separate_channels:
                 sample_shape = tf.concat([sample_shape, self.n_channels * self.one], 0)
@@ -1181,7 +1199,20 @@ class IntensityAugmentation(Layer):
         if self.gamma_std > 0:
             inputs = tf.math.pow(inputs, tf.math.exp(tf.random.normal(sample_shape, stddev=self.gamma_std)))
 
+        # apply random contrast inversion
+        if self.contrast_inversion:
+            rand_invert = tf.less(tf.random.uniform(sample_shape, maxval=1), 0.5)
+            split_channels = tf.split(inputs, [1] * self.n_channels, axis=-1)
+            split_rand_invert = tf.split(rand_invert, [1] * self.n_channels, axis=-1)
+            inverted_channel = list()
+            for (channel, invert) in zip(split_channels, split_rand_invert):
+                inverted_channel.append(tf.map_fn(self._single_invert, [channel, invert], dtype=channel.dtype))
+            inputs = tf.concat(inverted_channel, -1)
+
         return inputs
+
+    def _single_invert(self, inputs):
+        return K.switch(tf.squeeze(inputs[1]), 1 - inputs[0], inputs[0])
 
 
 class DiceLoss(Layer):
@@ -1193,6 +1224,11 @@ class DiceLoss(Layer):
         self.inshape = None
         self.enable_checks = enable_checks
         super(DiceLoss, self).__init__(**kwargs)
+
+    def get_config(self):
+        config = super().get_config()
+        config["enable_checks"] = self.enable_checks
+        return config
 
     def build(self, input_shape):
         assert len(input_shape) == 2, 'DiceLoss expects 2 inputs to compute the Dice loss.'
@@ -1207,8 +1243,8 @@ class DiceLoss(Layer):
         x = inputs[0]
         y = inputs[1]
         if self.enable_checks:  # disabling is useful to, e.g., use incomplete label maps
-            x = K.clip(x / tf.math.reduce_sum(x, axis=-1, keepdims=True), 0, 1)
-            y = K.clip(y / tf.math.reduce_sum(y, axis=-1, keepdims=True), 0, 1)
+            x = K.clip(x / (tf.math.reduce_sum(x, axis=-1, keepdims=True) + tf.keras.backend.epsilon()), 0, 1)
+            y = K.clip(y / (tf.math.reduce_sum(y, axis=-1, keepdims=True) + tf.keras.backend.epsilon()), 0, 1)
 
         # compute dice loss for each label
         top = tf.math.reduce_sum(2 * x * y, axis=list(range(1, len(self.inshape))))
@@ -1404,7 +1440,7 @@ class MaskEdges(Layer):
     :param boundaries: numpy array of shape (len(axes), 4). Each row contains the two bounds of the uniform
     distributions from which we draw the width of the zero-bands on each side.
     Those bounds must be expressed in relative side (i.e. between 0 and 1).
-    :return: a tensor of the same shape as the input, with bands of zeros along the pecified axes.
+    :return: a tensor of the same shape as the input, with bands of zeros along the specified axes.
 
     example:
     tensor=tf.constant([[[[1., 1., 1., 1., 1., 1., 1., 1., 1., 1.],
@@ -1488,3 +1524,214 @@ class MaskEdges(Layer):
 
     def compute_output_shape(self, input_shape):
         return [input_shape] * 2
+
+
+class ImageGradients(Layer):
+
+    def __init__(self, gradient_type='sobel', return_magnitude=False, **kwargs):
+
+        self.gradient_type = gradient_type
+        assert (self.gradient_type == 'sobel') | (self.gradient_type == '1-step_diff'), \
+            'gradient_type should be either sobel or 1-step_diff, had %s' % self.gradient_type
+
+        # shape
+        self.n_dims = 0
+        self.shape = None
+        self.n_channels = 0
+
+        # convolution params if sobel diff
+        self.stride = None
+        self.kernels = None
+        self.convnd = None
+
+        self.return_magnitude = return_magnitude
+
+        super(ImageGradients, self).__init__(**kwargs)
+
+    def get_config(self):
+        config = super().get_config()
+        config["gradient_type"] = self.gradient_type
+        config["return_magnitude"] = self.return_magnitude
+        return config
+
+    def build(self, input_shape):
+
+        # get shapes
+        self.n_dims = len(input_shape) - 2
+        self.shape = input_shape[1:]
+        self.n_channels = input_shape[-1]
+
+        # prepare kernel if sobel gradients
+        if self.gradient_type == 'sobel':
+            self.kernels = l2i_et.sobel_kernels(self.n_dims)
+            self.stride = [1] * (self.n_dims + 2)
+            self.convnd = getattr(tf.nn, 'conv%dd' % self.n_dims)
+        else:
+            self.kernels = self.convnd = self.stride = None
+
+        self.built = True
+        super(ImageGradients, self).build(input_shape)
+
+    def call(self, inputs, **kwargs):
+
+        image = inputs
+        batchsize = tf.split(tf.shape(inputs), [1, -1])[0]
+        gradients = list()
+
+        # sobel method
+        if self.gradient_type == 'sobel':
+            # get sobel gradients in each direction
+            for n in range(self.n_dims):
+                gradient = image
+                # apply 1D kernel in each direction (sobel kernels are separable), instead of applying a nD kernel
+                for k in self.kernels[n]:
+                    gradient = tf.concat([self.convnd(tf.expand_dims(gradient[..., n], -1), k, self.stride, 'SAME')
+                                          for n in range(self.n_channels)], -1)
+                gradients.append(gradient)
+
+        # 1-step method, only supports 2 and 3D
+        else:
+
+            # get 1-step diff
+            if self.n_dims == 2:
+                gradients.append(image[:, 1:, :, :] - image[:, :-1, :, :])  # dx
+                gradients.append(image[:, :, 1:, :] - image[:, :, :-1, :])  # dy
+
+            elif self.n_dims == 3:
+                gradients.append(image[:, 1:, :, :, :] - image[:, :-1, :, :, :])  # dx
+                gradients.append(image[:, :, 1:, :, :] - image[:, :, :-1, :, :])  # dy
+                gradients.append(image[:, :, :, 1:, :] - image[:, :, :, :-1, :])  # dz
+
+            else:
+                raise Exception('ImageGradients only support 2D or 3D tensors for 1-step diff, had: %dD' % self.n_dims)
+
+            # pad with zeros to return tensors of the same shape as input
+            for i in range(self.n_dims):
+                tmp_shape = list(self.shape)
+                tmp_shape[i] = 1
+                zeros = tf.zeros(tf.concat([batchsize, tf.convert_to_tensor(tmp_shape, dtype='int32')], 0), image.dtype)
+                gradients[i] = tf.concat([gradients[i], zeros], axis=i + 1)
+
+        # compute total gradient magnitude if necessary, or concatenate different gradients along the channel axis
+        if self.return_magnitude:
+            gradients = tf.sqrt(tf.reduce_sum(tf.square(tf.stack(gradients, axis=-1)), axis=-1))
+        else:
+            gradients = tf.concat(gradients, axis=-1)
+
+        return gradients
+
+    def compute_output_shape(self, input_shape):
+        if not self.return_magnitude:
+            input_shape = list(input_shape)
+            input_shape[-1] = self.n_dims
+        return tuple(input_shape)
+
+
+class RandomDilationErosion(Layer):
+    """
+    GPU implementation of binary dilation or erosion. The operation can be chosen to be always a dilation, or always an
+    erosion, or randomly choosing between them for each element of the batch.
+    The chosen operation is applied to the input with a given probability. Moreover, it is also possible to randomise
+    the factor of the operation for each element of the mini-batch.
+    :param min_factor: minimum possible value for the dilation/erosion factor. Must be an integer.
+    :param max_factor: minimum possible value for the dilation/erosion factor. Must be an integer.
+    Set it to the same value as min_factor to always perform dilation/erosion with the same factor.
+    :param prob: probability with which to apply the selected operation to the input.
+    :param operation: which operation to apply. Can be 'dilation' or 'erosion' or 'random'.
+    :param return_mask: if operation is erosion and the input of this layer is a label map, we have the
+    choice to either return the eroded label map or the mask (return_mask=True)
+    """
+
+    def __init__(self, min_factor, max_factor, max_factor_dilate=None, prob=1, operation='random', return_mask=False,
+                 **kwargs):
+
+        self.min_factor = min_factor
+        self.max_factor = max_factor
+        self.max_factor_dilate = max_factor_dilate if max_factor_dilate is not None else self.max_factor
+        self.prob = prob
+        self.operation = operation
+        self.return_mask = return_mask
+        self.n_dims = None
+        self.inshape = None
+        self.n_channels = None
+        self.convnd = None
+        super(RandomDilationErosion, self).__init__(**kwargs)
+
+    def get_config(self):
+        config = super().get_config()
+        config["min_factor"] = self.min_factor
+        config["max_factor"] = self.max_factor
+        config["max_factor_dilate"] = self.max_factor_dilate
+        config["prob"] = self.prob
+        config["operation"] = self.operation
+        config["return_mask"] = self.return_mask
+        return config
+
+    def build(self, input_shape):
+
+        # input shape
+        self.inshape = input_shape
+        self.n_dims = len(self.inshape) - 2
+        self.n_channels = self.inshape[-1]
+
+        # prepare convolution
+        self.convnd = getattr(tf.nn, 'conv%dd' % self.n_dims)
+
+        self.built = True
+        super(RandomDilationErosion, self).build(input_shape)
+
+    def call(self, inputs, **kwargs):
+
+        # sample probability of applying operation. If random negative is erosion and positive is dilation
+        batchsize = tf.split(tf.shape(inputs), [1, -1])[0]
+        shape = tf.concat([batchsize, tf.convert_to_tensor([1], dtype='int32')], axis=0)
+        if self.operation == 'dilation':
+            prob = tf.random.uniform(shape, 0, 1)
+        elif self.operation == 'erosion':
+            prob = tf.random.uniform(shape, -1, 0)
+        elif self.operation == 'random':
+            prob = tf.random.uniform(shape, -1, 1)
+        else:
+            raise ValueError("operation should either be 'dilation' 'erosion' or 'random', had %s" % self.operation)
+
+        # build kernel
+        if self.min_factor == self.max_factor:
+            dist_threshold = self.min_factor * tf.ones(shape, dtype='int32')
+        else:
+            if (self.max_factor == self.max_factor_dilate) | (self.operation != 'random'):
+                dist_threshold = tf.random.uniform(shape, minval=self.min_factor, maxval=self.max_factor, dtype='int32')
+            else:
+                dist_threshold = tf.cast(tf.map_fn(self._sample_factor, [prob], dtype=tf.float32), dtype='int32')
+        kernel = l2i_et.unit_kernel(dist_threshold, self.n_dims, max_dist_threshold=self.max_factor)
+
+        # convolve input mask with kernel according to given probability
+        mask = tf.cast(tf.cast(inputs, dtype='bool'), dtype='float32')
+        mask = tf.map_fn(self._single_blur, [mask, kernel, prob], dtype=tf.float32)
+        mask = tf.cast(mask, 'bool')
+
+        if self.return_mask:
+            return mask
+        else:
+            return inputs * tf.cast(mask, dtype=inputs.dtype)
+
+    def _sample_factor(self, inputs):
+        return tf.cast(K.switch(K.less(tf.squeeze(inputs[0]), 0),
+                                tf.random.uniform((1,), self.min_factor, self.max_factor, dtype='int32'),
+                                tf.random.uniform((1,), self.min_factor, self.max_factor_dilate, dtype='int32')),
+                       dtype='float32')
+
+    def _single_blur(self, inputs):
+        # dilate...
+        new_mask = K.switch(K.greater(tf.squeeze(inputs[2]), 1 - self.prob + 0.001),
+                            tf.cast(tf.greater(tf.squeeze(self.convnd(tf.expand_dims(inputs[0], 0), inputs[1],
+                                    [1] * (self.n_dims + 2), padding='SAME'), axis=0), 0.01), dtype='float32'),
+                            inputs[0])
+        # ...or erode
+        new_mask = K.switch(K.less(tf.squeeze(inputs[2]), - (1 - self.prob + 0.001)),
+                            1 - tf.cast(tf.greater(tf.squeeze(self.convnd(tf.expand_dims(1 - new_mask, 0), inputs[1],
+                                        [1] * (self.n_dims + 2), padding='SAME'), axis=0), 0.01), dtype='float32'),
+                            new_mask)
+        return new_mask
+
+    def compute_output_shape(self, input_shape):
+        return input_shape

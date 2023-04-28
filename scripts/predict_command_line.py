@@ -46,6 +46,8 @@ parser.add_argument("--cpu", action="store_true", help="enforce running with CPU
 parser.add_argument("--threads", type=int, default=1, dest="threads",
                     help="number of threads to be used by tensorflow when running on CPU.")
 parser.add_argument("--ct", action="store_true", help="use this flag for ct scans.")
+parser.add_argument("--model", default=None, help="(optional) Use a different model file.")
+parser.add_argument("--disable_flipping", action="store_true", help="(optional) Use this flag to disable flipping augmentation at test time.")
 
 args = vars(parser.parse_args())
 
@@ -73,7 +75,11 @@ unet_model = nrn_models.unet(nb_features=24,
                              activation='elu',
                              input_model=None)
 
-unet_model.load_weights(os.path.join(synthSR_home, 'models/SynthSR_v10_210712.h5'), by_name=True)
+if args.model is None:
+    unet_model.load_weights(os.path.join(synthSR_home, 'models/SynthSR_v10_210712.h5'), by_name=True)
+else:
+    print('Using user-specified model: ' + args.model)
+    unet_model.load_weights(args.model, by_name=True)
 
 # Prepare list of images to process
 path_images = os.path.abspath(args['path_images'])
@@ -118,7 +124,12 @@ for idx, (path_image, path_prediction) in enumerate(zip(images_to_segment, path_
     idx = np.floor((W - I.shape[1:-1]) / 2).astype('int')
     S = np.zeros([1, *W, 1])
     S[0, idx[0]:idx[0] + I.shape[1], idx[1]:idx[1] + I.shape[2], idx[2]:idx[2] + I.shape[3], :] = I
-    output = unet_model.predict(S)
+    
+    if args.disable_flipping:
+        output = unet_model.predict(S)
+    else:
+        output = 0.5 * unet_model.predict(S) + 0.5 * np.flip(unet_model.predict(np.flip(S, axis=1)), axis=1)
+          
     pred = np.squeeze(output)
     pred = 255 * pred
     pred[pred < 0] = 0

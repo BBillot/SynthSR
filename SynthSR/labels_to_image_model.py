@@ -130,7 +130,7 @@ def labels_to_image_model(labels_shape,
                                                       shearing_bounds=shearing_bounds,
                                                       translation_bounds=translation_bounds,
                                                       nonlin_std=nonlin_std,
-                                                      nonlin_shape_factor=nonlin_shape_factor,
+                                                      nonlin_scale=nonlin_shape_factor,
                                                       inter_method=['nearest', 'linear'])([labels, real_image])
     else:
         labels = RandomSpatialDeformation(scaling_bounds=scaling_bounds,
@@ -138,7 +138,7 @@ def labels_to_image_model(labels_shape,
                                           shearing_bounds=shearing_bounds,
                                           translation_bounds=translation_bounds,
                                           nonlin_std=nonlin_std,
-                                          nonlin_shape_factor=nonlin_shape_factor,
+                                          nonlin_scale=nonlin_shape_factor,
                                           inter_method='nearest')(labels)
 
     # cropping
@@ -256,9 +256,11 @@ def labels_to_image_model(labels_shape,
     else:
         target = KL.Lambda(lambda x: tf.concat(x, axis=-1))(targets) if len(targets) > 1 else targets[0]
     target = KL.Lambda(lambda x: tf.cast(x[0], dtype='float32'), name='regression_target')([target, labels])
+    target._keras_shape = tuple(target.get_shape().as_list())
 
     # build model (dummy layer enables to keep the target when plugging this model to other models)
     image = KL.Lambda(lambda x: x[0], name='image_out')([image, target])
+    image._keras_shape = tuple(image.get_shape().as_list())
     brain_model = Model(inputs=list_inputs, outputs=[image, target])
 
     return brain_model

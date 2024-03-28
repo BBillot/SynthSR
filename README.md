@@ -21,6 +21,7 @@ Don't worry! SynthSR is now part of the development ("dev") version of [FreeSurf
 You can download the dev version [HERE](https://surfer.nmr.mgh.harvard.edu/pub/dist/freesurfer/dev/).
 Instructions on how to use SynthSR once FreeSurfer has been installed can be found [HERE](https://surfer.nmr.mgh.harvard.edu/fswiki/SynthSR).
 
+----------------
 
 ### I know a bit about Python: easy use of SynthSR with one command
 
@@ -44,11 +45,11 @@ The synthetic 1mm MP-RAGE will be of a standard contrast, bias field corrected, 
 We note that the robustness against MR contrast / orientation /resolution was not presented in the original SynthSR
 paper, so if you use this model, please cite:
 
-[SynthSeg: Domain Randomisation for Segmentation of Brain MRI Scans of any Contrast and Resolution](https://arxiv.org/abs/2107.09559) \
+[SynthSeg: Segmentation of Brain MRI Scans of any Contrast and Resolution without retraining](https://www.sciencedirect.com/science/article/pii/S1361841523000506) \
 Billot B, Greve DN, Puonti O, Thielscher A, Van Leemput K, Fischl B, Dalca AV, Iglesias JE \
-Under review (preprint on ArXiv)
+Medical Image Analysis, 2023
 
-Regarding CT scans: SynthSR does a decent job with CT them! The only caveat is that the dynamic range of CT is very 
+Regarding CT scans: SynthSR does a decent job with CT scans! The only caveat is that the dynamic range of CT is very 
 different to that of MRI, so they need to be clipped to [0, 80] Hounsfield units. You can use the --ct flag to do this,
 as long as your image volume is in Hounsfield units. If not, you will have to clip to the Hounsfield equivalent yourself
 (and not use --ct).
@@ -87,7 +88,7 @@ Also, we note that this Hyperfine super-resolution model is trained with synthet
 may be able to cope with small lesions, it will likely fail in eg stroke. We are looking forward to other 
 super-resolution approaches (possibly supervised with real images) that do a better job!
 
-
+----------------
 
 ### Advanced use: training your own models
 
@@ -111,6 +112,38 @@ the real images instead.
 \
 ![Training overview](data/README_figures/framework.png)
 Figure 1: overview of SynthSR
+
+
+----------------
+
+### Installation
+
+1. Clone this repository.
+
+2. Create a virtual environment (i.e., with pip or conda) and install all the required packages. \
+These depend on your python version, and here we list the [requirements for Python 3.6](requirements.txt).
+A first solution to install the dependencies, if you use pip, is to run setup.py (with an activated virtual 
+environment): `python setup.py install`. Otherwise, we also give here the minimal commands to install the required 
+packages using pip/conda for Python 3.6/3.8.
+
+```
+# Conda, Python 3.6:
+conda create -n synthseg_36 python=3.6 tensorflow-gpu=2.0.0 keras=2.3.1 h5py==2.10.0 nibabel matplotlib -c anaconda -c conda-forge
+
+# Conda, Python 3.8:
+conda create -n synthseg_38 python=3.8 tensorflow-gpu=2.2.0 keras=2.3.1 nibabel matplotlib -c anaconda -c conda-forge
+
+# Pip, Python 3.6:
+pip install tensorflow-gpu==2.0.0 keras==2.3.1 nibabel==3.2.2 matplotlib==3.3.4
+
+# Pip, Python 3.8:
+pip install tensorflow-gpu==2.2.0 keras==2.3.1 protobuf==3.20.3 numpy==1.23.5 nibabel==5.0.1 matplotlib==3.6.2
+```
+
+3. If you wish to run on the GPU, you will also need to install Cuda (10.0 for Python 3.6, 10.1 for Python 3.8), and 
+CUDNN (7.6.5 for both). Note that if you used conda, these were already automatically installed.
+
+That's it ! You're now ready to use SynthSR ! :tada:
 
 
 ----------------
